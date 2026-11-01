@@ -1,0 +1,104 @@
+#!/bin/bash
+# 网络守卫 - 应用启停控制
+# start : 启动后端服务   stop : 停止后端服务并恢复网络   status : 运行状态探测
+set -u
+
+PID_FILE="${TRIM_PKGVAR}/server.pid"
+LOG_FILE="${TRIM_PKGVAR}/server.log"
+SERVER="${TRIM_APPDEST}/server/server.py"
+SCRIPT="${TRIM_APPDEST}/server/net-guard.sh"
+
+fail() {
+    echo "$1" >&2
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then echo "$1" >"$TRIM_TEMP_LOGFILE"; fi
+    exit 1
+}
+
+is_running() {
+    [ -f "$PID_FILE" ] || return 1
+    local pid
+    pid="$(tr -d '[:space:]' <"$PID_FILE" 2>/dev/null)"
+    [ -n "$pid" ] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    return 0
+}
+
+case "${1:-}" in
+start)
+    if is_running; then exit 0; fi
+    rm -f "$PID_FILE"
+
+    command -v python3 >/dev/null 2>&1 || fail "未找到 python3，无法启动后端服务"
+    [ -f "$SERVER" ] || fail "后端文件缺失：$SERVER"
+
+    mkdir -p "$TRIM_PKGVAR" 2>/dev/null || true
+    chmod +x "$SCRIPT" 2>/dev/null || true
+
+    export NETGUARD_ETC="$TRIM_PKGETC"
+    export NETGUARD_VAR="$TRIM_PKGVAR"
+    export NETGUARD_DEST="$TRIM_APPDEST"
+    export NG_PORT="${TRIM_SERVICE_PORT:-53210}"
+    export PYTHONUNBUFFERED=1
+    export PYTHONIOENCODING=utf-8
+
+    cd "$TRIM_APPDEST/server" || fail "无法进入应用目录"
+    nohup python3 "$SERVER" >>"$LOG_FILE" 2>&1 &
+    echo $! >"$PID_FILE"
+
+    i=0
+    while [ "$i" -lt 20 ]; do
+        if is_running; then exit 0; fi
+        sleep 0.5
+        i=$((i + 1))
+    done
+    fail "后端进程启动失败，请查看日志：$LOG_FILE"
+    ;;
+
+stop)
+    if is_running; then
+        pid="$(tr -d '[:space:]' <"$PID_FILE" 2>/dev/null)"
+        kill "$pid" 2>/dev/null || true
+        i=0
+        while [ "$i" -lt 20 ] && kill -0 "$pid" 2>/dev/null; do
+            sleep 0.3
+            i=$((i + 1))
+        done
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+    rm -f "$PID_FILE"
+
+    # 兜底：PID 文件可能失效（升级残留、文件被删过），孤儿后端进程会一直占着
+    # 服务端口，应用中心卸载时等端口释放就会超时——手机端表现为
+    # 「无法卸载：未知错误」，但后台卸载继续跑完。按命令行再清一次。
+    if command -v pkill >/dev/null 2>&1; then
+        pkill -f "$SERVER" 2>/dev/null || true
+        i=0
+        while [ "$i" -lt 10 ] && pgrep -f "$SERVER" >/dev/null 2>&1; do
+            sleep 0.2
+            i=$((i + 1))
+        done
+        pkill -9 -f "$SERVER" 2>/dev/null || true
+    fi
+
+    # 兜底：后端不在时没有人做定时纠偏，必须彻底复原，否则会一直处在封锁状态。
+    # 这里必须用 purge 而不是 on —— on 只拆当前模式那一套规则，
+    # 一旦用户切换过防护模式，另一种模式的 NET_GUARD_IN 会留下来继续丢包，
+    # 症状就是「局域网正常、FN Connect 中继不通」。
+    # FLOCK_WAIT=5：后台定时任务可能正持锁，purge 最多等 5 秒而不是 20 秒，
+    # 避免 stop 阶段被拖到应用中心超时（卸载钩子还会再 purge 一次兜底）。
+    if [ -x "$SCRIPT" ]; then
+        NET_GUARD_CONF="$TRIM_PKGETC/net-guard.conf" FLOCK_WAIT=5 \
+            "$SCRIPT" purge >/dev/null 2>&1 || true
+    fi
+    exit 0
+    ;;
+
+status)
+    if is_running; then exit 0; fi
+    exit 3
+    ;;
+
+*)
+    exit 1
+    ;;
+esac

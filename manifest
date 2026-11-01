@@ -1,0 +1,16 @@
+appname=app.netguard
+version=1.0.22
+display_name=网络守卫
+desc=作者：带刀的文人。夜间网络防护专家：定时封锁外部入站连接（保留 NAS 自身上网），支持自定义时间段、局域网白名单、Docker 端口防护、frp 隧道与飞牛 FN Connect 管控，带面板密码、公网暴露预警与防护自检。
+platform=all
+source=thirdparty
+maintainer=netguard
+distributor=netguard
+service_port=53210
+checkport=true
+os_min_version=0.9.0
+desktop_uidir=ui
+desktop_applaunchname=app.netguard.main
+ctl_stop=true
+changelog=1.0.22 修复四个安全与可靠性缺陷。① 手动「立即解除封锁」不再被调度器撤销：原先解除成功后会清掉手动覆盖记录，调度器下一次轮询（10 秒）读到空值便按定时计划把封锁重新装回去 —— 表现为「刚点完解除，10 秒后网络又断了」。现在改为写入「已放行」覆盖（6 小时兜底），解除失败时才清空以让调度器持续重试。② 修复 root 级命令注入：生成 net-guard.sh 配置时，所有取值统一做 shell 转义，双引号内的 $ ` ＼ " 不再被求值；此前含这些字符的配置值会被脚本 source 时执行。③ 收紧来源校验：Origin 为 null（跨站 sandbox / file:// 页面）一律拒绝，不再把整个内网当作可信来源 —— 只放行本机自身地址（飞牛 App 经本机网关转发仍可用），局域网内其他设备的页面不再能伪造来源调用写接口。④ 状态文件改为原子写：手动覆盖、隧道 / FN Connect 停止记录、用户意图全部走「临时文件 + 原子替换」，进程被杀或掉电时不会留下半截 JSON 导致记录丢失。另新增 tests/test_defects.py 覆盖上述四项的回归测试。
+checksum              = 24879b8966ee2c2b2a3774140cb502ed

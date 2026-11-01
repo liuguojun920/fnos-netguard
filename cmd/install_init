@@ -1,0 +1,19 @@
+#!/bin/bash
+# 安装前置检查
+set -u
+
+fail() {
+    echo "$1" >&2
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then echo "$1" >"$TRIM_TEMP_LOGFILE"; fi
+    exit 1
+}
+
+command -v python3 >/dev/null 2>&1 || fail "本机缺少 python3，网络守卫需要 python3 运行后端服务"
+
+if ! command -v iptables >/dev/null 2>&1; then
+    fail "本机缺少 iptables，无法设置防火墙规则。请确认系统完整性后重试"
+fi
+
+# 注意：此阶段应用文件尚未解压（install_init -> 解压 -> install_callback），
+# 不能在这里校验包内文件；完整性校验放在 install_callback 中。
+exit 0

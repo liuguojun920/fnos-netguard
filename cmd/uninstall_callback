@@ -1,0 +1,8 @@
+#!/bin/bash
+# 卸载完成后的清理（保留用户配置与日志，便于重装后还原）
+set -u
+
+# 只清理进程残留，不动数据目录
+rm -f "${TRIM_PKGVAR}/server.pid" 2>/dev/null || true
+
+exit 0

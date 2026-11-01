@@ -1,0 +1,13 @@
+{
+    ".url": {
+        "app.netguard.main": {
+            "title": "网络守卫",
+            "icon": "images/icon-{0}.png",
+            "type": "iframe",
+            "protocol": "http",
+            "port": "53210",
+            "url": "/",
+            "allUsers": false
+        }
+    }
+}

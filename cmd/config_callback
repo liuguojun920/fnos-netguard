@@ -1,0 +1,11 @@
+#!/bin/bash
+# 配置变更后：重启后端使其读取新环境变量
+set -u
+
+MAIN="$(cd "$(dirname "$0")" && pwd)/main"
+if [ -x "$MAIN" ]; then
+    "$MAIN" stop >/dev/null 2>&1 || true
+    "$MAIN" start >/dev/null 2>&1 || true
+fi
+
+exit 0

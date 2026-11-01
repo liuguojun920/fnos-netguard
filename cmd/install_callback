@@ -1,0 +1,27 @@
+#!/bin/bash
+# 安装完成后：完整性校验 + 准备运行目录与默认配置
+# （文件此时已解压完毕，才是做完整性校验的正确时机）
+set -u
+
+fail() {
+    echo "$1" >&2
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then echo "$1" >"$TRIM_TEMP_LOGFILE"; fi
+    exit 1
+}
+
+for f in "${TRIM_APPDEST}/server/server.py" \
+         "${TRIM_APPDEST}/server/net-guard.sh" \
+         "${TRIM_APPDEST}/server/www/index.html"; do
+    if [ ! -f "$f" ]; then
+        fail "应用文件不完整：未找到 ${f#${TRIM_APPDEST}/}"
+    fi
+done
+
+mkdir -p "$TRIM_PKGETC" "$TRIM_PKGVAR" 2>/dev/null || true
+chmod +x "${TRIM_APPDEST}/server/net-guard.sh" 2>/dev/null || true
+chmod +x "${TRIM_APPDEST}/server/server.py" 2>/dev/null || true
+
+# 运行状态目录（防火墙状态标记、路由备份）与脚本共用，避免二次安装后状态错乱
+mkdir -p /var/lib/net-guard 2>/dev/null || true
+
+exit 0

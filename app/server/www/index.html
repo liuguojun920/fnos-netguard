@@ -1,0 +1,2058 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ng-csrf" content="__NG_CSRF_NONCE__">
+<title>网络守卫</title>
+<style>
+:root{
+  --bg:#0a0d11;
+  --bg-soft:#0e1319;
+  --panel:#121820;
+  --panel-2:#161e27;
+  --line:#1f2a35;
+  --line-soft:#18212b;
+  --text:#e9f0f7;
+  --muted:#93a6b8;
+  --dim:#69809a;
+  --amber:#f2b544;
+  --amber-dim:#4a3714;
+  --green:#3ecf8e;
+  --green-dim:#12362a;
+  --red:#ff5f5f;
+  --blue:#5aa7f0;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  /* 毛玻璃卡片 */
+  --glass:rgba(18,24,32,.58);
+  --glass-2:rgba(14,19,25,.50);
+  --glass-line:rgba(255,255,255,.09);
+  --glass-hi:rgba(255,255,255,.06);
+  --glass-shadow:0 10px 30px rgba(0,0,0,.34);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{min-height:100%;background:var(--bg)}
+body{
+  min-height:100%;
+  background:transparent;
+  color:var(--text);
+  font-family:"Inter",-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  font-size:16px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  padding:30px 30px 48px;
+}
+/* 背景单独放在固定层：长页面滚动时渐变不会被截断出“断层”，
+   同时给毛玻璃卡片提供可模糊的底纹 */
+body::before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(1200px 620px at 82% -8%,rgba(242,181,68,.10),transparent 62%),
+    radial-gradient(900px 520px at 6% 106%,rgba(62,207,142,.08),transparent 60%),
+    radial-gradient(760px 460px at 52% 48%,rgba(90,167,240,.055),transparent 66%),
+    var(--bg);
+}
+.wrap{max-width:1240px;margin:0 auto}
+
+/* ---------- 顶栏 ---------- */
+.top{display:flex;align-items:center;gap:16px;padding-bottom:20px;border-bottom:1px solid var(--line-soft);margin-bottom:24px}
+.mark{width:38px;height:38px;flex:0 0 38px;position:relative}
+.mark svg{display:block}
+.brand{display:flex;flex-direction:column;gap:1px}
+.brand b{font-size:19px;font-weight:650;letter-spacing:.02em}
+.brand span{font-family:var(--mono);font-size:12px;color:var(--dim);letter-spacing:.16em}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:18px;flex-wrap:nowrap;min-width:0}
+.link-dot{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--muted);white-space:nowrap}
+.link-dot i{width:7px;height:7px;border-radius:50%;background:var(--dim);display:block;transition:.3s}
+.link-dot.on i{background:var(--green);box-shadow:0 0 8px rgba(62,207,142,.7)}
+.link-dot.off i{background:var(--red)}
+.ver{font-family:var(--mono);font-size:13px;color:var(--dim);white-space:nowrap}
+
+/* ---------- 主区 ---------- */
+.hero{display:grid;grid-template-columns:378px 1fr;gap:18px;margin-bottom:18px}
+@media(max-width:900px){.hero{grid-template-columns:1fr}}
+
+.card{
+  background:var(--glass);
+  border:1px solid var(--glass-line);
+  border-radius:15px;
+  position:relative;
+  backdrop-filter:blur(16px) saturate(150%);
+  -webkit-backdrop-filter:blur(16px) saturate(150%);
+  box-shadow:inset 0 1px 0 var(--glass-hi),var(--glass-shadow);
+}
+/* 浏览器不支持毛玻璃时退回实色卡片，保证文字可读 */
+@supports not ((backdrop-filter:blur(2px)) or (-webkit-backdrop-filter:blur(2px))){
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg-soft))}
+}
+.card-h{display:flex;align-items:baseline;gap:12px;padding:18px 20px 0}
+.card-h h2{font-size:15px;font-weight:600;letter-spacing:.05em;color:var(--muted)}
+.card-h .hint{font-size:13px;color:var(--dim);margin-left:auto;font-family:var(--mono)}
+.card-b{padding:16px 20px 20px}
+
+/* 状态卡 */
+.state-card{padding:22px 22px 20px;overflow:hidden}
+.state-card::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(240px 160px at 50% 8%,rgba(242,181,68,.12),transparent 70%);
+  opacity:0;transition:.5s;
+}
+.state-card.armed::after{opacity:1}
+.state-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.state-label{font-family:var(--mono);font-size:13px;letter-spacing:.16em;color:var(--dim)}
+.badge{
+  font-size:13px;padding:4px 11px;border-radius:999px;font-weight:600;
+  border:1px solid var(--line);color:var(--muted);white-space:nowrap;
+}
+.badge.armed{color:var(--amber);border-color:rgba(242,181,68,.4);background:rgba(242,181,68,.08)}
+.badge.free{color:var(--green);border-color:rgba(62,207,142,.35);background:rgba(62,207,142,.07)}
+.state-main{display:flex;align-items:center;gap:20px;margin-bottom:8px}
+.ring{position:relative;width:104px;height:104px;flex:0 0 104px}
+.ring svg{transform:rotate(-90deg)}
+.ring .core{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.ring .core b{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.ring .core span{font-size:12.5px;color:var(--dim);letter-spacing:.1em}
+.state-text h1{font-size:27px;font-weight:640;letter-spacing:.01em;margin-bottom:5px}
+.state-text p{font-size:14.5px;color:var(--muted);max-width:230px}
+.actions{display:flex;gap:10px;margin-top:18px}
+.btn{
+  flex:1;appearance:none;border:1px solid var(--line);background:var(--panel-2);
+  color:var(--text);font-family:inherit;font-size:15px;font-weight:600;white-space:nowrap;
+  padding:11px 14px;border-radius:10px;cursor:pointer;transition:.16s;
+}
+.btn:not(:disabled):not(.primary):not(.go):not(.stop):not(.start):hover{background:#1b242e;border-color:#2a3744}
+.btn:active{transform:translateY(1px)}
+
+/* 禁用态：统一表达为「去饱和 + 半透明 + 禁入光标」，且 hover 不产生任何视觉变化。
+   下面为每种语义色显式声明 disabled 本体色，避免被基础/主题规则刷成面板底色后看不清。 */
+.btn:disabled{cursor:not-allowed;transform:none;opacity:.5;filter:grayscale(.28) saturate(.9)}
+.btn.primary{background:linear-gradient(180deg,#f7c25c,#e5a52f);color:#1a1206;border-color:#f2b544}
+.btn.go{background:linear-gradient(180deg,#4ade9c,#2fb87b);color:#04231a;border-color:#3ecf8e}
+.btn.ghost{flex:0 0 auto;padding:11px 16px;font-weight:500;color:var(--muted)}
+.btn.stop{background:linear-gradient(180deg,#ff6f6f,#e24545);color:#2b0707;border-color:var(--red)}
+.btn.start{background:linear-gradient(180deg,#4ade9c,#2fb87b);color:#04231a;border-color:var(--green)}
+
+.btn.primary:not(:disabled):hover{filter:brightness(1.05)}
+.btn.go:not(:disabled):hover{filter:brightness(1.05)}
+.btn.stop:not(:disabled):hover{filter:brightness(1.10);background:linear-gradient(180deg,#ff8585,#ea5353)}
+.btn.start:not(:disabled):hover{filter:brightness(1.10);background:linear-gradient(180deg,#57e9a7,#34c184)}
+
+.btn.stop:disabled,.btn.stop:disabled:hover{background:linear-gradient(180deg,#ff6f6f,#e24545);color:#2b0707;border-color:var(--red)}
+.btn.start:disabled,.btn.start:disabled:hover{background:linear-gradient(180deg,#4ade9c,#2fb87b);color:#04231a;border-color:var(--green)}
+.btn.primary:disabled,.btn.primary:disabled:hover{background:linear-gradient(180deg,#f7c25c,#e5a52f);color:#1a1206;border-color:#f2b544}
+.btn.go:disabled,.btn.go:disabled:hover{background:linear-gradient(180deg,#4ade9c,#2fb87b);color:#04231a;border-color:#3ecf8e}
+
+html[data-theme="light"] .btn.stop{background:linear-gradient(180deg,#f46363,#d93a3a);color:#fff}
+html[data-theme="light"] .btn.start{background:linear-gradient(180deg,#34c98a,#1f9d64);color:#fff}
+html[data-theme="light"] .btn.stop:disabled,html[data-theme="light"] .btn.stop:disabled:hover{background:linear-gradient(180deg,#f46363,#d93a3a);color:#fff;border-color:#d93a3a}
+html[data-theme="light"] .btn.start:disabled,html[data-theme="light"] .btn.start:disabled:hover{background:linear-gradient(180deg,#34c98a,#1f9d64);color:#fff;border-color:#1f9d64}
+.verify-box{display:none;flex-direction:column;gap:8px;margin-top:8px}
+.verify-item{
+  display:grid;grid-template-columns:24px minmax(120px,auto) 1fr;gap:10px;align-items:start;
+  padding:9px 12px;border-radius:10px;border:1px solid var(--line);
+  background:var(--panel-2);font-size:14px;line-height:1.5;
+}
+.verify-item b{font-size:15px;text-align:center}
+.verify-item span{font-weight:600}
+.verify-item em{font-style:normal;color:var(--muted);font-size:13.5px}
+.verify-item.pass b{color:var(--green)}
+.verify-item.fail{border-color:rgba(255,95,95,.45);background:rgba(255,95,95,.07)}
+.verify-item.fail b{color:var(--red)}
+.verify-item.info b{color:var(--blue)}
+
+/* 时间轴 */
+.timeline{margin-top:20px;padding-top:16px;border-top:1px solid var(--line-soft)}
+.tl-top{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:var(--dim);margin-bottom:8px}
+.tl-bar{position:relative;height:28px;border-radius:7px;background:var(--panel-2);border:1px solid var(--line-soft);overflow:hidden}
+.tl-bar .free{position:absolute;top:0;bottom:0;background:rgba(62,207,142,.1)}
+.tl-bar .blocked{
+  position:absolute;top:0;bottom:0;
+  background:repeating-linear-gradient(135deg,rgba(242,181,68,.28),rgba(242,181,68,.28) 5px,rgba(242,181,68,.16) 5px,rgba(242,181,68,.16) 10px);
+  border-left:1px solid rgba(242,181,68,.55);border-right:1px solid rgba(242,181,68,.55);
+}
+.tl-bar .now{position:absolute;top:-2px;bottom:-2px;width:2px;background:#fff;box-shadow:0 0 8px rgba(255,255,255,.8)}
+.tl-legend{display:flex;gap:16px;margin-top:9px;font-size:13px;color:var(--dim)}
+.tl-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+
+/* 统计格 */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--glass-line);border-radius:15px;overflow:hidden;border:1px solid var(--glass-line)}
+@media(max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--glass-2);padding:17px 18px}
+.stat .k{font-size:13px;color:var(--dim);letter-spacing:.06em;margin-bottom:8px;font-family:var(--mono)}
+.stat .v{font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.stat .v small{font-size:13px;color:var(--muted);font-weight:400;margin-left:5px}
+.stat .sub{font-size:13px;color:var(--dim);margin-top:5px;font-family:var(--mono);word-break:break-all}
+.stat.warn .v{color:var(--amber)}
+.stat.good .v{color:var(--green)}
+
+/* 配置区 */
+.io-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.io-sum{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-top:14px;padding:10px 13px;background:var(--bg);border-radius:9px;border-left:2px solid var(--line)}
+.io-sum .io-sum-lab{font-size:13px;color:var(--dim)}
+.io-sum .io-sum-item{display:inline-flex;align-items:baseline;gap:5px}
+.io-sum .io-num{font-size:15px;font-weight:650;color:var(--fg)}
+.io-sum .io-num.up{color:var(--amber)}
+.io-sum .io-num.down{color:var(--blue)}
+.io-sum em{font-size:12px;font-style:normal;color:var(--dim)}
+@media(max-width:900px){.io-grid{grid-template-columns:1fr}}
+.io-top{display:flex;align-items:baseline;gap:10px;margin-bottom:7px}
+.io-tag{font-size:13.5px;font-weight:600;letter-spacing:.04em}
+.io-tag.up{color:var(--amber)}
+.io-tag.down{color:var(--green)}
+.io-top b{font-family:var(--mono);font-size:18px;font-variant-numeric:tabular-nums}
+.io-top em{font-style:normal;font-size:12.5px;color:var(--dim);margin-left:auto;font-family:var(--mono)}
+.spark{width:100%;height:46px;display:block;background:var(--panel-2);border:1px solid var(--line);border-radius:10px}
+.sp-line{fill:none;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
+.sp-line.up{stroke:var(--amber)}
+.sp-line.down{stroke:var(--green)}
+.sp-area.up{fill:rgba(242,181,68,.15);stroke:none}
+.sp-area.down{fill:rgba(62,207,142,.15);stroke:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.grid2 .span2{grid-row:1 / span 2}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}.grid2 .span2{grid-row:auto}}
+.row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0}
+.row + .row{border-top:1px solid var(--line-soft)}
+.row .lab{font-size:15.5px}
+.row .lab em{display:block;font-style:normal;font-size:13.5px;color:var(--dim);margin-top:3px;line-height:1.5}
+.sub-head{margin-top:6px}
+.sub-head .lab{font-family:var(--mono);font-size:13px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase}
+
+/* 开关 */
+.sw{position:relative;width:46px;height:25px;flex:0 0 46px}
+.sw input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:2}
+.sw .track{position:absolute;inset:0;border-radius:999px;background:#222d38;transition:.2s;border:1px solid var(--line)}
+.sw .track::after{content:"";position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:#7b8b9b;transition:.2s}
+.sw input:checked + .track{background:rgba(242,181,68,.28);border-color:rgba(242,181,68,.5)}
+.sw input:checked + .track::after{transform:translateX(21px);background:var(--amber)}
+
+/* 输入 */
+input[type=time],input[type=text],input[type=number],select{
+  background:var(--bg);border:1px solid var(--line);color:var(--text);
+  font-family:var(--mono);font-size:15.5px;padding:9px 12px;border-radius:9px;outline:none;
+}
+input[type=time]:focus,input[type=text]:focus,input[type=number]:focus,select:focus{border-color:#33475a;box-shadow:0 0 0 3px rgba(90,167,240,.1)}
+.timegroup{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:14px;color:var(--dim)}
+.seg{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+.seg button{
+  appearance:none;background:transparent;border:0;color:var(--muted);font-family:inherit;
+  font-size:14.5px;padding:8px 13px;border-radius:7px;cursor:pointer;transition:.15s;white-space:nowrap;
+}
+.seg button[aria-pressed=true]{background:var(--panel-2);color:var(--text);box-shadow:0 1px 0 rgba(255,255,255,.04) inset}
+.seg button:hover{color:var(--text)}
+
+/* 网段 chips */
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:5px;min-height:30px}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;background:var(--panel-2);
+  border:1px solid var(--line);border-radius:8px;padding:5px 7px 5px 11px;
+  font-family:var(--mono);font-size:13.5px;color:#c3d2e0;
+}
+.chip button{appearance:none;background:transparent;border:0;color:var(--dim);cursor:pointer;font-size:16px;line-height:1;padding:0 3px}
+.chip button:hover{color:var(--red)}
+.chip.add{background:transparent;border-style:dashed;color:var(--dim);padding:5px 11px}
+.addrow{display:flex;gap:8px;margin-top:10px}
+.addrow input{flex:1;min-width:0;font-size:14px}
+
+/* 隧道 */
+.tunnel-list{display:flex;flex-direction:column;gap:7px;margin-top:10px}
+.tunnel-item{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:14px;color:#c3d2e0}
+.tunnel-item .dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;background:var(--dim)}
+.tunnel-item .dot.on{background:var(--green);box-shadow:0 0 7px rgba(62,207,142,.65)}
+.tunnel-item .dot.off{background:var(--red);box-shadow:0 0 7px rgba(255,95,95,.5)}
+.tunnel-item .dot.none{background:var(--dim);box-shadow:none;opacity:.75}
+.tunnel-item .tag{font-family:inherit;font-size:12.5px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 5px}
+.tunnel-item .tag.ok{color:var(--green);border-color:rgba(62,207,142,.35)}
+.tunnel-item .tag.bad{color:var(--red);border-color:rgba(255,95,95,.32)}
+.note{font-size:13.5px;color:var(--dim);line-height:1.65;margin-top:11px;padding:11px 13px;background:var(--bg);border-radius:9px;border-left:2px solid var(--line)}
+.note.warn{border-left-color:rgba(242,181,68,.6);color:#c9b48a}
+.note[title]{cursor:help}
+.note .more{display:inline-block;margin-left:10px;font-size:12px;color:var(--dim);opacity:.75;border-bottom:1px dashed var(--dim)}
+
+/* 日志 */
+.log{background:var(--glass-2);border:1px solid var(--glass-line);border-radius:11px;padding:14px 16px;
+  font-family:var(--mono);font-size:13.5px;line-height:1.8;color:#9db1c3;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.log::-webkit-scrollbar{width:9px}
+.log::-webkit-scrollbar-thumb{background:#1d2833;border-radius:4px}
+
+/* 日志工具条 */
+.logbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.logbar label{font-family:var(--mono);font-size:13px;color:var(--dim);letter-spacing:.08em}
+.logbar select,.logbar input[type=number]{font-size:14px;padding:7px 10px}
+.logbar .grow{flex:1 1 12px}
+
+/* toast */
+#toast{position:fixed;right:24px;bottom:24px;display:flex;flex-direction:column;gap:9px;z-index:50}
+.toast{
+  background:#18212b;border:1px solid var(--line);border-left:3px solid var(--blue);
+  border-radius:10px;padding:12px 16px;font-size:14.5px;max-width:380px;
+  box-shadow:0 12px 30px rgba(0,0,0,.45);animation:in .2s ease-out;
+}
+.toast.ok{border-left-color:var(--green)}
+.toast.err{border-left-color:var(--red)}
+@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.saving{opacity:.6;pointer-events:none}
+footer{margin-top:24px;text-align:center;font-family:var(--mono);font-size:13px;color:#41505f}
+
+/* ================= 亮色主题（覆盖上面的深色默认值） ================= */
+html[data-theme="light"]{
+  --bg:#f3f6f9;
+  --bg-soft:#eaf0f6;
+  --panel:#ffffff;
+  --panel-2:#f6f9fc;
+  --line:#dae2ea;
+  --line-soft:#e6ecf2;
+  --text:#101821;
+  --muted:#55677a;
+  --dim:#78899a;
+  --amber:#b4780c;
+  --amber-dim:#fdf3e0;
+  --green:#0e8a5f;
+  --green-dim:#e3f5ec;
+  --red:#cf3a3a;
+  --blue:#1a6fc4;
+  --glass:rgba(255,255,255,.62);
+  --glass-2:rgba(255,255,255,.50);
+  --glass-line:rgba(16,24,33,.10);
+  --glass-hi:rgba(255,255,255,.9);
+  --glass-shadow:0 8px 22px rgba(16,24,33,.08);
+}
+html[data-theme="light"] body::before{
+  background:
+    radial-gradient(1200px 620px at 82% -8%,rgba(242,181,68,.16),transparent 62%),
+    radial-gradient(900px 520px at 6% 106%,rgba(62,207,142,.13),transparent 60%),
+    radial-gradient(760px 460px at 52% 48%,rgba(90,167,240,.07),transparent 66%),
+    var(--bg);
+}
+html[data-theme="light"] .card{box-shadow:inset 0 1px 0 var(--glass-hi),var(--glass-shadow)}
+html[data-theme="light"] .btn:not(:disabled):not(.primary):not(.go):not(.stop):not(.start):hover{background:#e9eff5;border-color:#c9d5e1}
+html[data-theme="light"] .btn.stop:not(:disabled):hover{background:linear-gradient(180deg,#f4716f,#cd2f2f);color:#fff;border-color:#bf2b2b}
+html[data-theme="light"] .btn.start:not(:disabled):hover{background:linear-gradient(180deg,#41d69c,#189059);color:#fff;border-color:#128352}
+html[data-theme="light"] .btn.primary:not(:disabled):hover{background:linear-gradient(180deg,#f9cb70,#e3a62f);color:#2a1c04}
+html[data-theme="light"] .btn.go:not(:disabled):hover{background:linear-gradient(180deg,#5ce8ac,#27b174);color:#04231a}
+html[data-theme="light"] .btn.primary:disabled,html[data-theme="light"] .btn.primary:disabled:hover{background:linear-gradient(180deg,#f6c25f,#e0a12c);color:#2a1c04}
+html[data-theme="light"] .btn.go:disabled,html[data-theme="light"] .btn.go:disabled:hover{background:linear-gradient(180deg,#4ade9c,#25a86d);color:#04231a}
+html[data-theme="light"] .btn.primary{background:linear-gradient(180deg,#f6c25f,#e0a12c);color:#2a1c04}
+html[data-theme="light"] .btn.go{background:linear-gradient(180deg,#4ade9c,#25a86d);color:#04231a}
+html[data-theme="light"] .sw .track{background:#d4dce4;border-color:#c3cede}
+html[data-theme="light"] .sw .track::after{background:#8b98a6}
+html[data-theme="light"] .sw input:checked + .track{background:rgba(242,181,68,.35);border-color:rgba(180,120,12,.45)}
+html[data-theme="light"] .chip{color:#33414f}
+html[data-theme="light"] .tunnel-item{color:#33414f}
+html[data-theme="light"] .note{background:#f2f6fa}
+html[data-theme="light"] .note.warn{color:#8a6410}
+html[data-theme="light"] .log{background:var(--glass-2);color:#46586a;border-color:var(--glass-line)}
+html[data-theme="light"] .log::-webkit-scrollbar-thumb{background:#cbd6e2}
+html[data-theme="light"] .toast{background:#ffffff;box-shadow:0 12px 30px rgba(16,24,33,.14)}
+html[data-theme="light"] .seg button[aria-pressed=true]{background:#ffffff;color:var(--text);box-shadow:0 1px 3px rgba(16,24,33,.10)}
+html[data-theme="light"] input[type=time]:focus,
+html[data-theme="light"] input[type=text]:focus,
+html[data-theme="light"] select:focus{border-color:#8fb2d8}
+html[data-theme="light"] footer{color:#8a97a5}
+html[data-theme="light"] .stat{background:var(--glass-2)}
+html[data-theme="light"] .badge.armed{background:#fdf3e0;color:#9a6610;border-color:#e8c98a}
+html[data-theme="light"] .badge.free{background:#e3f5ec;color:#0c7a53;border-color:#a9dcc4}
+html[data-theme="light"] .tl-bar .now{background:#1a2430;box-shadow:0 0 6px rgba(26,36,48,.35)}
+html[data-theme="light"] .ring svg circle:first-child{stroke:#dfe5ec}
+
+/* 主题切换按钮 */
+.theme-btn{
+  appearance:none;background:var(--panel-2);border:1px solid var(--line);color:var(--muted);
+  width:36px;height:36px;border-radius:10px;cursor:pointer;display:flex;align-items:center;
+  justify-content:center;transition:.16s;padding:0;
+}
+.theme-btn:hover{color:var(--text);border-color:#33475a}
+.theme-btn svg{width:18px;height:18px;display:block}
+
+/* ---------- 安全预警横幅 ---------- */
+.banner{
+  position:relative;display:flex;align-items:flex-start;gap:11px;
+  border-radius:13px;padding:13px 44px 13px 16px;margin-bottom:12px;
+  font-size:14.5px;line-height:1.65;border:1px solid;
+}
+.banner b{font-weight:650}
+.banner.danger{background:rgba(255,95,95,.12);border-color:rgba(255,95,95,.42);color:#ef8080}
+.banner.warn{background:rgba(242,181,68,.11);border-color:rgba(242,181,68,.38);color:#dcb568}
+.banner.info{background:rgba(90,167,240,.09);border-color:rgba(90,167,240,.3);color:#7fb0e2}
+.banner .bclose{
+  position:absolute;right:10px;top:8px;appearance:none;background:transparent;border:0;
+  color:currentColor;opacity:.6;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;
+}
+.banner .bclose:hover{opacity:1}
+html[data-theme="light"] .banner.danger{background:#fdecec;border-color:#f0b9b9;color:#a32a2a}
+html[data-theme="light"] .banner.warn{background:#fdf4e3;border-color:#e9cb8c;color:#8a6410}
+html[data-theme="light"] .banner.info{background:#eaf3fc;border-color:#bcd6f2;color:#1a5c9e}
+
+/* ---------- 登录 / 创建密码 ---------- */
+.mask{
+  position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;
+  background:rgba(6,9,13,.62);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+}
+html[data-theme="light"] .mask{background:rgba(238,243,248,.72)}
+.authbox{
+  width:430px;max-width:92vw;background:var(--panel);border:1px solid var(--line);
+  border-radius:16px;padding:26px 26px 22px;box-shadow:0 24px 60px rgba(0,0,0,.5);
+}
+html[data-theme="light"] .authbox{box-shadow:0 20px 50px rgba(16,24,33,.18)}
+.authbox h3{font-size:19.5px;font-weight:650;margin-bottom:7px}
+.authbox .sub{font-size:14px;color:var(--muted);margin-bottom:18px;line-height:1.65}
+.authbox input{width:100%;margin-bottom:10px}
+.authbox input[type=password]{
+  width:100%;display:block;box-sizing:border-box;
+  font-family:var(--mono);font-size:15.5px;padding:11px 13px;border-radius:9px;
+  background:var(--bg);border:1px solid var(--line);color:var(--text);outline:none;
+  margin-bottom:10px;
+}
+.authbox .err{color:var(--red);font-size:13.5px;min-height:20px;margin-bottom:4px}
+.authbox .tip{margin-top:13px;font-size:13px;color:var(--dim);line-height:1.6}
+.authbox .actions{margin-top:6px}
+.authbox .actions .btn{flex:1}
+
+/* ---------- 手机端适配（宽屏 <=640px）：触摸目标、单列布局、iOS 不自动缩放 ---------- */
+@media(max-width:640px){
+  body{padding:16px 14px 34px;-webkit-text-size-adjust:100%}
+  .top{flex-wrap:wrap;gap:10px;padding-bottom:14px;margin-bottom:16px}
+  .top .ver{margin-left:auto}
+  .brand span{display:none}
+  .top-right{gap:10px}
+  .link-dot{font-size:12.5px}
+  .ver{font-size:11.5px}
+  .ver .alab{display:none}
+  .hero{gap:14px;margin-bottom:14px}
+  .card,.state-card{padding:18px 16px 20px;border-radius:16px}
+  .card-h{padding:16px 16px 0;gap:8px}
+  .card-h h2{flex:0 0 auto}
+  .card-h .hint{margin-left:auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .grid2,.io-grid{gap:14px}
+  .row{padding:13px 0;gap:12px}
+  .row .lab{font-size:15px}
+  .actions{gap:8px;margin-top:14px}
+  .actions .btn{min-height:46px}
+  .btn{min-height:46px;padding:12px 14px;font-size:15.5px}
+  .btn.ghost{min-height:46px;padding:12px 10px}
+  .seg{flex-wrap:wrap}
+  .seg button{flex:1 1 auto;min-height:42px}
+  .sw{width:52px;height:29px;flex:0 0 52px}
+  .sw .track::after{width:23px;height:23px}
+  .sw input:checked + .track::after{transform:translateX(23px)}
+  input[type=time],input[type=text],input[type=number],select{
+    font-size:16px;padding:11px 12px;min-height:44px;max-width:100%;
+  }
+  .timegroup{flex-wrap:wrap;gap:8px}
+  .stats{border-radius:13px}
+  .stat{padding:14px 15px}
+  .stat .v{font-size:19px}
+  .verify-item{grid-template-columns:22px 1fr;gap:8px 10px}
+  .verify-item > *:nth-child(3){grid-column:1 / -1;margin-top:-2px}
+  .authbox{padding:22px 18px 20px}
+  .authbox input[type=password]{font-size:16px;padding:13px;min-height:46px}
+  .state-main{gap:14px}
+  .state-text h1{font-size:23px}
+  .state-text p{max-width:none}
+  .note{font-size:13.5px;padding:10px 12px}
+}
+/* 窄屏防横向溢出：长进程名、长 IPv6、速率行都不许把页面撑宽 */
+@media(max-width:640px){
+  body{overflow-x:hidden}
+  .tunnel-item{flex-wrap:wrap;row-gap:2px}
+  .tunnel-item .tag{margin-left:auto}
+  .io-top{flex-wrap:wrap;row-gap:2px}
+  .io-top em{margin-left:0}
+  .state-top{flex-wrap:wrap;gap:8px}
+  .verify-item em{overflow-wrap:anywhere}
+}
+@media(max-width:400px){
+  .stats{grid-template-columns:1fr}
+  .btn{min-height:48px}
+  .top-right{gap:8px}
+  .ver{font-size:10.5px}
+}
+/* 触屏设备没有鼠标悬停：说明条改为点按展开，并给出展开/收起角标 */
+@media(hover:none){
+  .note .more{display:none}
+  .note[data-expanded="0"]::after{content:"展开";float:right;margin-left:8px;font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+  .note[data-expanded="1"]::after{content:"收起";float:right;margin-left:8px;font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:6px;padding:0 6px}
+}
+
+</style>
+<script>
+/* 尽早应用主题，避免刷新时出现一帧深色闪烁 */
+(function(){
+  try {
+    var t = localStorage.getItem("ng-theme");
+    if (!t) t = (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+  } catch(e){ document.documentElement.setAttribute("data-theme", "dark"); }
+})();
+</script>
+</head>
+<body>
+<div class="wrap">
+  <div id="bannerBox"></div>
+
+  <div class="top">
+    <div class="mark">
+      <svg width="38" height="38" viewBox="0 0 38 38" fill="none">
+        <path d="M19 3.5l12.2 4.6v10.3c0 7.1-4.9 13.2-12.2 16.1C11.5 31.6 6.6 25.5 6.6 18.4V8.1L19 3.5z"
+              fill="rgba(242,181,68,.1)" stroke="#f2b544" stroke-width="1.5"/>
+        <path d="M13.4 18.4l4 4L24.9 14.5" stroke="#f2b544" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="brand">
+      <b>网络守卫</b>
+      <span>NET GUARD · fnOS</span>
+    </div>
+    <div class="top-right">
+      <div class="link-dot" id="linkDot"><i></i><span id="linkText">连接中</span></div>
+      <button class="theme-btn" id="btnTheme" title="切换深色 / 浅色" aria-label="切换主题"></button>
+      <button class="theme-btn" id="btnPw" title="修改面板密码" aria-label="修改面板密码">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2.2"/><path d="M8.2 10.5V7.7a3.8 3.8 0 017.6 0v2.8"/></svg>
+      </button>
+      <div class="ver" id="verText">v1.0.0</div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <!-- 状态卡 -->
+    <div class="card state-card" id="stateCard">
+      <div class="state-top">
+        <span class="state-label">CURRENT STATE</span>
+        <span class="badge" id="stateBadge">读取中</span>
+      </div>
+      <div class="state-main">
+        <div class="ring">
+          <svg width="104" height="104" viewBox="0 0 104 104">
+            <circle cx="52" cy="52" r="44" fill="none" stroke="#1d2833" stroke-width="5"/>
+            <circle id="ringArc" cx="52" cy="52" r="44" fill="none" stroke="#f2b544" stroke-width="5"
+                    stroke-linecap="round" stroke-dasharray="276" stroke-dashoffset="196"
+                    style="transition:stroke-dashoffset .6s ease,stroke .4s"/>
+          </svg>
+          <div class="core">
+            <b id="blockedNum">0</b>
+            <span>拦截包</span>
+          </div>
+        </div>
+        <div class="state-text">
+          <h1 id="stateTitle">正在读取状态</h1>
+          <p id="stateDesc">请稍候…</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="btnToggle" disabled>立即封锁</button>
+        <button class="btn ghost" id="btnCycle" title="释放并重新建立防护规则，排障用">重载规则</button>
+        <button class="btn ghost" id="btnPurge" title="清空本程序留下的全部防火墙规则并补回路由，用于排障或卸载前复原">清理规则残留</button>
+      </div>
+      <div class="note" id="manualHint" style="display:none"></div>
+      <div class="timeline">
+        <div class="tl-top"><span id="tlStart">00:05</span><span id="tlNext">—</span><span id="tlEnd">06:00</span></div>
+        <div class="tl-bar" id="tlBar">
+          <div class="now" id="tlNow" style="left:0%"></div>
+        </div>
+        <div class="tl-legend">
+          <span><i style="background:rgba(242,181,68,.35)"></i>封锁窗口</span>
+          <span><i style="background:rgba(62,207,142,.25)"></i>正常放行</span>
+          <span style="margin-left:auto" id="tlCountdown">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 统计 -->
+    <div class="stats" id="stats">
+      <div class="stat"><div class="k">防护模式</div><div class="v" id="sMode">—</div><div class="sub" id="sModeSub">—</div></div>
+      <div class="stat"><div class="k">累计拦截</div><div class="v" id="sBlocked">—</div><div class="sub" id="sBlockedSub">IPv4 — / IPv6 —</div></div>
+      <div class="stat"><div class="k">下次切换</div><div class="v" id="sNext">—</div><div class="sub" id="sNextSub">—</div></div>
+      <div class="stat"><div class="k">主网卡</div><div class="v" id="sIface">—</div><div class="sub" id="sIfaceSub">—</div></div>
+      <div class="stat"><div class="k">网关</div><div class="v" id="sGw">—</div><div class="sub" id="sGwSub">默认路由</div></div>
+      <div class="stat"><div class="k">公网地址</div><div class="v" id="sAddr">—</div><div class="sub" id="sAddrSub">—</div></div>
+    </div>
+  </div>
+
+  <!-- 实时流量 -->
+  <div class="card" id="ioCard" style="margin-top:18px">
+    <div class="card-h">
+      <h2>主网卡实时流量</h2>
+      <span class="hint" id="ioHint">每 2 秒采样</span>
+    </div>
+    <div class="card-b">
+      <div class="io-grid">
+        <div class="io-block">
+          <div class="io-top">
+            <span class="io-tag up">出站 ↑</span>
+            <b id="ioTxRate">—</b>
+            <em id="ioTxPeak">峰值 —</em>
+          </div>
+          <svg class="spark" viewBox="0 0 300 46" preserveAspectRatio="none">
+            <polygon id="ioTxArea" class="sp-area up" points=""></polygon>
+            <polyline id="ioTxLine" class="sp-line up" points=""></polyline>
+          </svg>
+        </div>
+        <div class="io-block">
+          <div class="io-top">
+            <span class="io-tag down">入站 ↓</span>
+            <b id="ioRxRate">—</b>
+            <em id="ioRxPeak">峰值 —</em>
+          </div>
+          <svg class="spark" viewBox="0 0 300 46" preserveAspectRatio="none">
+            <polygon id="ioRxArea" class="sp-area down" points=""></polygon>
+            <polyline id="ioRxLine" class="sp-line down" points=""></polyline>
+          </svg>
+        </div>
+      </div>
+      <div class="io-sum">
+        <span class="io-sum-lab">今日累计</span>
+        <span class="io-sum-item"><b id="ioTodayTx" class="io-num up">↑ —</b><em>发送</em></span>
+        <span class="io-sum-item"><b id="ioTodayRx" class="io-num down">↓ —</b><em>接收</em></span>
+        <span class="io-sum-item"><b id="ioTodayTotal" class="io-num">—</b><em>合计</em></span>
+        <span class="hint" id="ioTodayNote" style="margin-left:auto">—</span>
+      </div>
+      <div class="note" id="ioNote">正在读取流量…</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <!-- 任务模式（含隧道管控） -->
+    <div class="card span2">
+      <div class="card-h"><h2>任务模式</h2><span class="hint" id="schedHint">定时任务</span></div>
+      <div class="card-b">
+        <div class="row" style="padding-top:0">
+          <div class="lab">执行方式<em>定时任务=到点自动封锁/恢复；手动任务=不按时段，一切由你手动「立即封锁 / 解除」控制</em></div>
+          <div class="seg" id="taskSeg">
+            <button data-task="sched" aria-pressed="true">定时任务</button>
+            <button data-task="manual" aria-pressed="false">手动任务</button>
+          </div>
+        </div>
+        <div class="row" id="timeRow">
+          <div class="lab">封锁时段<em>仅定时任务生效：只决定自动切换的时刻</em></div>
+          <div class="timegroup">
+            <input type="time" id="cfgOff" value="00:05">
+            <span>→</span>
+            <input type="time" id="cfgOn" value="06:00">
+          </div>
+        </div>
+        <div class="row">
+          <div class="lab">防护模式<em>封入站=外部进不来、本机照常上网；此项全局生效，定时与手动都用它</em></div>
+          <div class="seg" id="modeSeg">
+            <button data-mode="guard" aria-pressed="true">封入站</button>
+            <button data-mode="soft" aria-pressed="false">断外网</button>
+            <button data-mode="strict" aria-pressed="false">断网口</button>
+          </div>
+        </div>
+        <div class="note warn" id="modeWarn" style="display:none"></div>
+
+        <!-- 【定时任务】模式才有：自动管控开关 -->
+        <div id="schedOnly">
+        <div class="row sub-head"><div class="lab">封锁期间同时执行<em>仅「定时任务」模式：到点自动执行，解除后自动拉回</em></div></div>
+        <div class="row">
+          <div class="lab">暂停穿透隧道<em>到点进入封锁时自动停止下面命中的进程（frp 等反向隧道靠防火墙拦不住，只能停进程）；解除后自动拉回</em></div>
+          <label class="sw"><input type="checkbox" id="cfgTunnel"><span class="track"></span></label>
+        </div>
+        <div class="row">
+          <div class="lab">暂停 FN Connect<em>到点进入封锁时自动停止飞牛官方远程访问服务，解除后自动拉回；局域网访问不受影响</em></div>
+          <label class="sw"><input type="checkbox" id="cfgFn"><span class="track"></span></label>
+        </div>
+        </div><!-- /schedOnly -->
+
+        <div id="tunSvcWrap" style="display:none">
+        <div class="row"><div class="lab">隧道进程名<em>手动任务模式下按它决定「停止 / 恢复隧道」操作的对象；定时任务的自动启停同样按这份名单执行（此模式下不显示，切到手动任务即可查看修改）</em></div></div>
+        <div class="chips" id="tunSvc"></div>
+        <div class="addrow">
+          <input type="text" id="newTun" placeholder="frpc">
+          <button class="btn" id="btnAddTun" style="flex:0 0 auto;padding:8px 16px">添加</button>
+        </div>
+        </div><!-- /tunSvcWrap -->
+
+        <!-- 【手动任务】模式才有：状态 + 立即执行按钮 -->
+        <div id="manualOnly">
+        <div class="row sub-head" style="margin-top:4px"><div class="lab">手动停止 / 恢复<em>仅「手动任务」模式：点了立即执行，与定时任务的管控效果一致</em></div></div>
+        <div class="tunnel-list" id="tunnelList"></div>
+        <div class="actions" style="margin-top:12px">
+          <button class="btn stop" id="btnTunStop" style="padding:9px 12px">停止隧道</button>
+          <button class="btn start" id="btnTunStart" style="padding:9px 12px">恢复隧道</button>
+        </div>
+        <div class="note" id="tunnelNote" style="margin-top:8px"></div>
+
+        <div class="tunnel-list" id="fnList" style="margin-top:14px"></div>
+        <div class="actions" style="margin-top:12px">
+          <button class="btn stop" id="btnFnStop" style="padding:9px 12px">停止 FN Connect</button>
+          <button class="btn start" id="btnFnStart" style="padding:9px 12px">恢复 FN Connect</button>
+        </div>
+        <div class="note" id="fnNote" style="margin-top:8px"></div>
+        </div><!-- /manualOnly -->
+
+        <div class="note" id="scopeNote" style="margin-top:10px" title="生效范围：执行方式 / 封锁时段 只决定自动切换；防护模式决定「封锁时用什么方式封」，选中后不会自动进入封锁，需要点「立即封锁」才按该模式生效。隧道与 FN Connect 的管控在两种模式下效果完全一致，只是触发方式不同：定时任务用「封锁期间同时执行」的开关，到点自动停止、解除后自动拉回；手动任务则隐藏开关，改由「手动停止 / 恢复」里的按钮立即执行，两者不重叠。">生效范围速览：<b>执行方式 / 封锁时段</b>管「何时自动切换」，<b>防护模式</b>管「封锁时怎么封」<span class="more">悬停查看完整说明</span></div>
+
+        <div class="row sub-head" style="margin-top:8px">
+          <div class="lab">防护自检<em>别只看开关：用真实路由表、iptables 规则和 ping 结果验证是不是真的拦住了</em></div>
+        </div>
+        <div class="row" style="padding-top:0;align-items:center">
+          <button class="btn primary" id="btnVerify" style="flex:0 0 auto;padding:10px 22px">开始自检</button>
+          <span class="hint" id="verifySummary" style="flex:1;min-width:0">尚未执行</span>
+        </div>
+        <div class="verify-box" id="verifyBox"></div>
+
+        <div class="row" style="justify-content:flex-end;padding-bottom:0">
+          <button class="btn" id="btnSave" style="flex:0 0 auto;padding:10px 22px">保存并应用</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 白名单 -->
+    <div class="card">
+      <div class="card-h"><h2>放行网段</h2><span class="hint" id="lanCount">—</span></div>
+      <div class="card-b">
+        <div class="row" style="padding-top:0">
+          <div class="lab">IPv4<em>这些来源的入站连接不受封锁影响</em></div>
+        </div>
+        <div class="chips" id="lanV4"></div>
+        <div class="row"><div class="lab" style="font-size:14px;color:var(--muted)">IPv6</div></div>
+        <div class="chips" id="lanV6"></div>
+        <div class="addrow">
+          <input type="text" id="newNet" placeholder="192.168.1.0/24 或 2001:db8::/32">
+          <button class="btn" id="btnAddNet" style="flex:0 0 auto;padding:8px 16px">添加</button>
+        </div>
+        <div class="note">IPv6 没有 NAT，NAS 拿到的是公网地址，外部可直接访问。默认只放行链路本地与内网前缀，公网 IPv6 一律丢弃。</div>
+      </div>
+    </div>
+
+    <!-- 高级选项 -->
+    <div class="card">
+    <div class="card-h"><h2>高级选项</h2><span class="hint">谨慎修改</span></div>
+    <div class="card-b">
+      <div class="row" style="padding-top:0">
+        <div class="lab">防护 Docker 端口<em>容器端口映射走 FORWARD 链，需单独挂载规则</em></div>
+        <label class="sw"><input type="checkbox" id="cfgDocker"><span class="track"></span></label>
+      </div>
+      <div class="row">
+        <div class="lab">记录被拦的包<em>写入系统日志，排查谁在扫你（限流 3 条/分）</em></div>
+        <label class="sw"><input type="checkbox" id="cfgDropLog"><span class="track"></span></label>
+      </div>
+      <div class="row">
+        <div class="lab">更新保护<em>检测到 apt/系统更新在跑时跳过本次操作</em></div>
+        <label class="sw"><input type="checkbox" id="cfgApt"><span class="track"></span></label>
+      </div>
+      <div class="row" style="padding-bottom:2px">
+        <div class="lab">企业微信通知<em>群机器人 Webhook，非必填；留空则不推送</em></div>
+      </div>
+      <div class="addrow" style="margin-top:2px">
+        <input type="text" id="cfgNotify" autocomplete="off" spellcheck="false"
+               placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…">
+        <button class="btn ghost" id="btnNotifyTest" style="flex:0 0 auto;padding:8px 14px">发测试</button>
+      </div>
+      <div class="note" id="notifyNote">填了机器人地址后，「开始封锁 / 解除封锁 / 操作失败」都会推送一条纯文本消息，解除那条会附上本次封锁的概览。保存后地址只显示首尾 4 位，key 中段用 **** 隐藏——直接覆盖输入即为更换，清空并保存即为关闭。</div>
+      <!--
+        企业微信通知的断网时序说明（不在前台展示，细节见 server.py 中 notify_push / do_action 的注释）：
+        soft(断外网)/strict(断网口) 模式会先切断外网，之后 DNS 即不可用，
+        此时再发通知必然 Errno -3 —— 所以程序改为断网前先预发一条「即将开始封锁」，
+        失败则入待发队列，等网络恢复后补推。详见 server.py 的 _text_start_pending / _pending_add。
+      -->
+      <div class="row" style="padding-bottom:2px">
+        <div class="lab">允许的来源域名<em>用自有反向代理 / 自定义域名访问面板时填写，留空即可</em></div>
+      </div>
+      <div class="addrow" style="margin-top:2px">
+        <input type="text" id="cfgOrigins" autocomplete="off" spellcheck="false"
+               placeholder="nas.example.com 或 .example.com（多个用逗号分隔）">
+      </div>
+      <div class="note">面板的接口做了来源校验，拒绝互联网上的陌生页面替你操作。若你通过自建反向代理或自定义域名打开面板，请把该域名填在这里（支持 <code>.example.com</code> 这类后缀写法）。</div>
+      <div class="row" style="justify-content:flex-end">
+        <button class="btn" id="btnSaveAdv" style="flex:0 0 auto;padding:10px 22px">保存高级选项</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- 日志 -->
+  <div class="card" style="margin-top:18px">
+    <div class="card-h"><h2>运行日志</h2><span class="hint" id="logHint">最近 60 行</span>
+      <button class="btn ghost" id="btnLog" style="margin-left:auto;padding:5px 12px;font-size:13px">刷新</button>
+    </div>
+    <div class="card-b" style="padding-top:12px">
+      <div class="logbar">
+        <label for="logDate">日期</label>
+        <select id="logDate"></select>
+        <label for="logKeep">保留</label>
+        <input type="number" id="logKeep" min="1" max="365" step="1" style="width:88px">
+        <span style="font-size:13.5px;color:var(--dim)">天</span>
+        <button class="btn ghost" id="btnLogKeep" style="padding:6px 12px;font-size:13px">应用</button>
+        <span class="grow"></span>
+        <button class="btn ghost" id="btnLogPurge" style="padding:6px 12px;font-size:13px">清理该日及更早</button>
+      </div>
+      <div class="log" id="logBox">加载中…</div>
+      <div class="note" id="logNote">日志按天分片存放（一天一个文件），默认保留 15 天，过期文件每天自动清理一次；也可以选定日期手动清理。</div>
+    </div>
+  </div>
+
+  <footer>netguard · 入站封锁依赖 iptables，卸载前会自动恢复网络</footer>
+</div>
+
+<div id="toast"></div>
+
+<div class="mask" id="authMask" style="display:none">
+  <div class="authbox">
+    <h3 id="authTitle">设置面板密码</h3>
+    <p class="sub" id="authDesc">首次使用，请创建一个密码。</p>
+    <input type="password" id="authPw" placeholder="密码（8 - 64 位）" autocomplete="current-password">
+    <input type="password" id="authPw2" placeholder="再输入一次" autocomplete="new-password">
+    <div class="err" id="authErr"></div>
+    <div class="actions">
+      <button class="btn primary" id="authOk">创建并进入</button>
+      <button class="btn ghost" id="authCancel" style="display:none">取消</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var state = { status: null, mode: "guard", timer: null, logTimer: null };
+  var $ = function(id){ return document.getElementById(id); };
+
+  /* ---------------- 主题 ---------------- */
+  var THEME_ICON = {
+    dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>',
+    light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/></svg>'
+  };
+  function applyTheme(t){
+    document.documentElement.setAttribute("data-theme", t);
+    var b = $("btnTheme");
+    if (b) b.innerHTML = THEME_ICON[t] || THEME_ICON.dark;
+    try { localStorage.setItem("ng-theme", t); } catch(e){}
+  }
+  $("btnTheme").onclick = function(){
+    var cur = document.documentElement.getAttribute("data-theme") || "dark";
+    applyTheme(cur === "light" ? "dark" : "light");
+  };
+  applyTheme(document.documentElement.getAttribute("data-theme") || "dark");
+
+  /* ---------------- 防覆盖 ----------------
+     轮询每 5 秒刷新一次状态，若无条件回写表单，用户刚拨动的开关会被“打回去”，
+     表现为开关打不开或自动弹回。这里给每个控件一个短暂的“用户优先”窗口。 */
+  var dirty = {};
+  function markDirty(id, ms){ dirty[id] = Date.now() + (ms || 10000); }
+  function isDirty(id){ return (dirty[id] || 0) > Date.now(); }
+  function clearDirty(id){ delete dirty[id]; }
+
+  function toast(msg, kind){
+    var el = document.createElement("div");
+    el.className = "toast" + (kind ? " " + kind : "");
+    el.textContent = msg;
+    $("toast").appendChild(el);
+    setTimeout(function(){
+      el.style.transition = "opacity .3s"; el.style.opacity = "0";
+      setTimeout(function(){ el.remove(); }, 320);
+    }, kind === "err" ? 5200 : 3200);
+  }
+
+  var token = "";
+  try { token = localStorage.getItem("ng-token") || ""; } catch(e){ token = ""; }
+  function setToken(t){
+    token = t || "";
+    try { if (t) localStorage.setItem("ng-token", t); else localStorage.removeItem("ng-token"); } catch(e){}
+  }
+
+  // 服务端下发的页面令牌：用于来源校验。跨站页面读不到本页正文，拿不到它，
+  // 因此在飞牛 App、自建反代等 Origin 与 Host 不一致的场景下也能正常登录。
+  var csrf = "";
+  try {
+    var m = document.querySelector('meta[name="ng-csrf"]');
+    csrf = (m && m.getAttribute("content") || "").trim();
+    if (csrf.indexOf("__NG_") === 0) csrf = "";
+  } catch(e){ csrf = ""; }
+
+  function api(path, body){
+    var opt = body ? {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    } : { headers: {} };
+    if (!opt.headers) opt.headers = {};
+    if (token) opt.headers["X-NG-Token"] = token;
+    if (csrf) opt.headers["X-NG-CSRF"] = csrf;
+    return fetch(path, opt).then(function(r){
+      // 先拿文本再解析：远程访问时网关（FN Connect 中继等）可能返回自己的
+      // HTML 错误页，直接 r.json() 会炸出 "Unexpected token '<'" 这种没法读的错。
+      return r.text().then(function(txt){
+        var j = null;
+        try { j = txt ? JSON.parse(txt) : null; } catch(e){ j = null; }
+        if (j === null) {
+          if (r.status === 401) { setToken(""); showAuth(false); throw new Error("需要登录"); }
+          throw new Error("服务返回了异常内容（HTTP " + r.status + "），连接可能刚被网络操作中断，请稍候重试");
+        }
+        if (r.status === 401 && j && j.need_login) {
+          setToken(""); showAuth(false);
+          throw new Error("需要登录");
+        }
+        if (!r.ok) { throw new Error((j && j.error) || ("HTTP " + r.status)); }
+        return j;
+      });
+    });
+  }
+
+  function fmtDur(sec){
+    if (sec === null || sec === undefined) return "—";
+    sec = Math.max(0, Math.floor(sec));
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+    if (h > 0) return h + " 小时 " + m + " 分";
+    if (m > 0) return m + " 分 " + (sec % 60) + " 秒";
+    return sec + " 秒";
+  }
+
+  // 倒计时专用：秒级精度，用于每秒自减的提示
+  function fmtDurSec(sec){
+    if (sec === null || sec === undefined) return "—";
+    sec = Math.max(0, Math.floor(sec));
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    var p = function(n){ return n < 10 ? "0" + n : "" + n; };
+    if (h > 0) return h + " 小时 " + p(m) + " 分 " + p(s) + " 秒";
+    return p(m) + " 分 " + p(s) + " 秒";
+  }
+
+  function hhmm(ts){
+    if (!ts) return "—";
+    var d = new Date(ts * 1000);
+    var p = function(n){ return n < 10 ? "0" + n : "" + n; };
+    return p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+
+  // “上次封锁”可能跨天，只给时分会产生歧义，这里连日期一起给
+  function mmddhhmm(ts){
+    if (!ts) return "—";
+    var d = new Date(ts * 1000);
+    var p = function(n){ return n < 10 ? "0" + n : "" + n; };
+    return (d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+
+  var MODE_LABEL = {
+    guard: ["封入站", "外部无法连入"],
+    soft:  ["断外网", "局域网保留"],
+    strict:["断网口", "局域网也断"]
+  };
+
+  function render(s){
+    state.status = s;
+    var armed = (s.state === "off");
+    var mode = s.mode;
+    state.mode = mode;
+
+    // 版本号 + 作者拆成 span：手机端窄屏只隐藏「作者」两字标签，名字保留且整行不折行
+    var _vt = $("verText");
+    while (_vt.firstChild) _vt.removeChild(_vt.firstChild);
+    _vt.appendChild(document.createTextNode("v" + s.version));
+    if (s.author) {
+      var _vsep = document.createElement("span"); _vsep.className = "vsep"; _vsep.textContent = " · ";
+      var _vlab = document.createElement("span"); _vlab.className = "alab"; _vlab.textContent = "作者 ";
+      var _vname = document.createElement("span"); _vname.className = "aname"; _vname.textContent = s.author;
+      _vt.appendChild(_vsep); _vt.appendChild(_vlab); _vt.appendChild(_vname);
+    }
+    if (s.security) {
+      renderBanner(s, s.security);
+      if (!s.security.auth_required) showAuth(true);
+    }
+    $("linkDot").className = "link-dot on";
+    $("linkText").textContent = "已连接";
+
+    // 状态卡
+    $("stateCard").className = "card state-card" + (armed ? " armed" : "");
+    var badge = $("stateBadge");
+    badge.className = "badge " + (armed ? "armed" : "free");
+    badge.textContent = armed ? "防护中" : "已放行";
+    $("stateTitle").textContent = armed ? "外部访问已封锁" : "网络正常放行";
+    if (armed) {
+      $("stateDesc").textContent = mode === "guard"
+        ? "外网连不进来，NAS 自身仍可上网、局域网照常"
+        : (mode === "soft" ? "外网出口已切断，局域网可访问" : "网卡已断开，局域网也不可达");
+    } else {
+      $("stateDesc").textContent = ((s.schedule || {}).enabled)
+        ? "当前不在封锁时段，全部服务正常对外"
+        : "定时已关闭，当前为手动控制状态";
+    }
+
+    curFirewall = s.firewall || {};
+    var total = curFirewall.blocked_total || 0;
+    var arc = $("ringArc");
+    arc.style.stroke = armed ? "#f2b544" : "#3ecf8e";
+    var frac = Math.min(1, total / 300);
+    arc.style.strokeDashoffset = String(276 - frac * 214);
+
+    var btn = $("btnToggle");
+    btn.disabled = false;
+    btn.className = "btn " + (armed ? "go" : "primary");
+    btn.textContent = armed ? "立即解除封锁" : "立即封锁";
+
+    // 统计格
+    var ml = MODE_LABEL[mode] || [mode, ""];
+    $("sMode").textContent = ml[0];
+    $("sModeSub").textContent = ml[1];
+    curFirewall = s.firewall || {};
+    paintBlocked(curFirewall, mode);
+
+    var nx = s.schedule.next;
+    if (s.schedule.enabled && nx && nx.ts) {
+      $("sNext").textContent = hhmm(nx.ts);
+      $("sNextSub").textContent = (nx.state === "off" ? "进入封锁" : "解除封锁") + " · " + fmtDur(nx.in) + "后";
+      $("tlCountdown").textContent = (nx.state === "off" ? "距封锁 " : "距解除 ") + fmtDur(nx.in);
+    } else {
+      $("sNext").textContent = "—";
+      $("sNextSub").textContent = "定时未启用";
+      $("tlCountdown").textContent = "—";
+    }
+
+    $("sIface").textContent = s.net.iface || "—";
+    $("sIfaceSub").textContent = s.net.ipv4.length ? s.net.ipv4[0] : "无地址";
+    $("sGw").textContent = s.net.gateway || "—";
+    $("sGwSub").textContent = s.net.route ? "默认路由存在" : "无默认路由";
+    var v6 = s.net.ipv6.length;
+    $("sAddr").textContent = v6 ? v6 + " 个" : "无";
+    $("sAddrSub").textContent = v6 ? s.net.ipv6[0] : "无公网 IPv6";
+
+    renderTimeline(s);
+
+    // 表单（用户正在编辑的输入框不覆盖）
+    if (document.activeElement !== $("cfgOff") && !isDirty("cfgOff")) $("cfgOff").value = s.schedule.off_time;
+    if (document.activeElement !== $("cfgOn") && !isDirty("cfgOn")) $("cfgOn").value = s.schedule.on_time;
+    var schedOn = !!s.schedule.enabled;
+    if (!isDirty("taskSeg")) {
+      Array.prototype.forEach.call($("taskSeg").children, function(b){
+        b.setAttribute("aria-pressed", (b.dataset.task === "sched") === schedOn ? "true" : "false");
+      });
+    }
+    if (!isDirty("timeRow")) $("timeRow").style.display = schedOn ? "" : "none";
+    if (!isDirty("cfgTunnel")) $("cfgTunnel").checked = !!s.config.tunnel_guard;
+    if (!isDirty("cfgFn")) $("cfgFn").checked = !!s.config.fnconnect_guard;
+    if (!isDirty("cfgDocker")) $("cfgDocker").checked = !!s.config.guard_docker;
+    if (!isDirty("cfgDropLog")) $("cfgDropLog").checked = !!s.config.drop_log;
+    if (!isDirty("cfgApt")) $("cfgApt").checked = !!s.config.protect_apt;
+    if (!isDirty("cfgOrigins") && $("cfgOrigins")) {
+      $("cfgOrigins").value = (s.config.csrf_allow_origins || []).join(", ");
+    }
+    // 机器人地址后端只回显掩码（key 中段 ****）；正在输入时不覆盖用户的手输内容
+    var wh = $("cfgNotify");
+    if (wh && !isDirty("cfgNotify") && document.activeElement !== wh) {
+      wh.value = s.config.notify_webhook || "";
+      wh.dataset.set = s.config.notify_webhook_set ? "1" : "0";
+    }
+    $("schedHint").textContent = s.schedule.enabled ? "定时任务 · 生效中" : "手动任务";
+
+    // 手动覆盖提示：区分「覆盖到期」与「下一次定时动作」两个不同概念，
+    // 并由前端每秒自减倒计时（服务端只给时间戳）。
+    clockOffset = s.now - Math.floor(Date.now() / 1000);
+    mhCache = { manual: s.manual, sched: s.schedule };
+    renderManualHint();
+
+    // 模式风险提示：断网口/断外网都可能让人暂时连不上 NAS，先讲清楚
+    var mw = $("modeWarn");
+    if (mode === "strict") {
+      mw.style.display = "block";
+      mw.textContent = "断网口模式会直接关闭网卡，局域网也连不上 NAS（包括这个页面）。"
+        + "仅建议在人能物理接触 NAS 时临时使用；万一失联，需在 NAS 本地终端执行 net-guard on force 恢复。";
+    } else if (mode === "soft") {
+      mw.style.display = "block";
+      mw.textContent = "断外网模式会删除默认路由：NAS 上不了网（下载、系统更新、远程 App 会中断），局域网访问不受影响。";
+    } else {
+      mw.style.display = "none";
+    }
+
+    Array.prototype.forEach.call($("modeSeg").children, function(b){
+      b.setAttribute("aria-pressed", b.dataset.mode === mode ? "true" : "false");
+    });
+
+    applyTaskDisplay(!!(s.schedule && s.schedule.enabled));
+
+    if (s.io) renderIo(s.io);
+    ioMode = s.mode || ioMode;
+    ioExplain(ioMode, s.state, (s.firewall && s.firewall.blocked_total) || 0);
+    renderChips(s.config.lan_v4, s.config.lan_v6);
+    renderTunChips(s.config.tunnel_services || []);
+    renderTunnels(s);
+    renderFn(s);
+    renderLogDates(s);
+    if (!$("logBox").dataset.loaded) loadLog();
+  }
+
+  // 「累计拦截」的口径要写清楚：没生效就是没生效，不能用 0 糊弄过去
+  var curFirewall = {};
+  function paintBlocked(fw, mode){
+    var total = fw.blocked_total || 0;
+    var cell = $("sBlocked"), ap = cell.parentNode;
+    if (total > 0) {
+      cell.textContent = total;
+      $("sBlockedSub").textContent = "IPv4 " + (fw.blocked_v4 || 0) + " / IPv6 " + (fw.blocked_v6 || 0);
+      ap.className = "stat warn";
+      $("blockedNum").textContent = total;
+    } else if (!fw.inbound_active) {
+      // 已放行时计数器必然读不到（链随解锁一起拆了），用上一次封锁的最终数字补位；
+      // 拿不到就老实说没在计数，绝不用 0 冒充。
+      var last = fw.last_session;
+      if (last && last.ok && (last.total || 0) > 0) {
+        cell.textContent = last.total;
+        $("sBlockedSub").textContent = "上次封锁（" + mmddhhmm(last.end) + " 解除）拦下 "
+          + last.total + " 个（IPv4 " + (last.v4 || 0) + " / IPv6 " + (last.v6 || 0) + "）";
+        ap.className = "stat";
+        $("blockedNum").textContent = last.total;
+      } else {
+        cell.textContent = "—";
+        $("sBlockedSub").textContent = (mode === "guard")
+          ? "未生效：点「立即封锁」后才开始计数"
+          : "当前模式不封入站，不计此数";
+        ap.className = "stat";
+        $("blockedNum").textContent = "0";
+      }
+    } else if (fw.counters_ok === false) {
+      cell.textContent = "—";
+      $("sBlockedSub").textContent = "读不到计数（重载规则会把计数清零）";
+      ap.className = "stat";
+      $("blockedNum").textContent = "0";
+    } else {
+      cell.textContent = "0";
+      $("sBlockedSub").textContent = "规则已生效，暂无被丢弃的包";
+      ap.className = "stat";
+      $("blockedNum").textContent = "0";
+    }
+  }
+
+  function renderTimeline(s){
+    var off = s.schedule.off_time, on = s.schedule.on_time;
+    var bar = $("tlBar");
+    Array.prototype.slice.call(bar.querySelectorAll(".free,.blocked")).forEach(function(n){ n.remove(); });
+
+    var toMin = function(t){ var p = String(t).split(":"); return (+p[0]) * 60 + (+p[1]); };
+    var a = toMin(off) / 1440 * 100, b = toMin(on) / 1440 * 100;
+
+    var blocked = document.createElement("div");
+    blocked.className = "blocked";
+    if (a <= b) { blocked.style.left = a + "%"; blocked.style.width = (b - a) + "%"; }
+    else { blocked.style.left = a + "%"; blocked.style.width = (100 - a) + "%"; }
+
+    var free = document.createElement("div");
+    free.className = "free";
+    if (a <= b) { free.style.left = "0%"; free.style.width = "100%"; }
+    else { free.style.left = b + "%"; free.style.width = (100 - b) + "%"; }
+
+    bar.insertBefore(free, $("tlNow"));
+    bar.insertBefore(blocked, $("tlNow"));
+
+    var now = new Date();
+    var pct = (now.getHours() * 60 + now.getMinutes()) / 1440 * 100;
+    $("tlNow").style.left = pct + "%";
+    $("tlStart").textContent = "00:00";
+    $("tlEnd").textContent = "24:00";
+    $("tlNext").textContent = s.schedule.enabled
+      ? (off + " 封锁 → " + on + " 恢复") : "定时关闭";
+  }
+
+  var chipsV4 = [], chipsV6 = [];
+  function renderChips(v4, v6){
+    chipsV4 = v4.slice(); chipsV6 = v6.slice();
+    drawChips();
+    $("lanCount").textContent = (v4.length + v6.length) + " 条规则";
+  }
+  function drawChips(){
+    var box4 = $("lanV4"), box6 = $("lanV6");
+    box4.innerHTML = ""; box6.innerHTML = "";
+    chipsV4.forEach(function(net){ box4.appendChild(chip(net, "v4")); });
+    chipsV6.forEach(function(net){ box6.appendChild(chip(net, "v6")); });
+    if (!chipsV4.length) box4.innerHTML = '<span style="font-size:13.5px;color:#69809a">无（将拒绝所有 IPv4 入站）</span>';
+    if (!chipsV6.length) box6.innerHTML = '<span style="font-size:13.5px;color:#69809a">无（将拒绝所有 IPv6 入站）</span>';
+  }
+  function chip(net, kind){
+    var el = document.createElement("span");
+    el.className = "chip";
+    el.appendChild(document.createTextNode(net));
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = "×"; b.title = "移除";
+    b.onclick = function(){
+      if (kind === "v4" || kind === "v6") {
+        var tip = "确认移除放行网段 " + net + " 吗？\n\n"
+          + "移除后，来自该网段的入站连接会被直接丢弃。如果它正是你所在的内网网段，"
+          + "你（以及家里其它设备）将无法通过局域网访问 NAS，包括当前这个页面。\n\n"
+          + "失联后的恢复方法：在 NAS 本机终端执行  net-guard on force";
+        if (!confirm(tip)) return;
+      }
+      if (kind === "v4") chipsV4 = chipsV4.filter(function(x){ return x !== net; });
+      else if (kind === "v6") chipsV6 = chipsV6.filter(function(x){ return x !== net; });
+      else chipsTun = chipsTun.filter(function(x){ return x !== net; });
+      if (kind === "tun") { drawTunChips(); saveTun(); }
+      else drawChips();
+    };
+    el.appendChild(b);
+    return el;
+  }
+
+  var chipsTun = [];
+  function renderTunChips(list){
+    // 用户在输入框里打字时不覆盖，避免清掉输入
+    if (document.activeElement === $("newTun")) return;
+    chipsTun = list.slice();
+    drawTunChips();
+  }
+  function drawTunChips(){
+    var box = $("tunSvc");
+    box.innerHTML = "";
+    chipsTun.forEach(function(n){ box.appendChild(chip(n, "tun")); });
+    if (!chipsTun.length) box.innerHTML = '<span style="font-size:13.5px;color:#69809a">未配置（不会停止任何进程）</span>';
+  }
+  function saveTun(){
+    saveConfig({
+      tunnel_guard: $("cfgTunnel").checked,
+      tunnel_services: chipsTun
+    }, $("btnSave"));
+  }
+
+  /* 状态行：运行中=绿点，已停止=红点，系统上没找到=灰点 */
+  function statusRow(t){
+    var d = document.createElement("div");
+    d.className = "tunnel-item";
+    var dot = document.createElement("span");
+    dot.className = "dot " + (t.running ? "on" : (t.type === "absent" ? "none" : "off"));
+    d.appendChild(dot);
+    var nm = document.createElement("span");
+    nm.textContent = t.name;
+    d.appendChild(nm);
+    var tag = document.createElement("span");
+    tag.className = "tag " + (t.running ? "ok" : (t.type === "absent" ? "" : "bad"));
+    tag.textContent = t.running ? "运行中" : (t.type === "absent" ? "未检测到" : "已停止");
+    d.appendChild(tag);
+    var kind = document.createElement("span");
+    kind.className = "tag";
+    kind.textContent = t.type === "service" ? "systemd" : (t.type === "process" ? "进程" : "—");
+    d.appendChild(kind);
+    return d;
+  }
+
+  function armButtons(stopId, startId, canStop, canStart){
+    var sb = $(stopId), rb = $(startId);
+    if (!sb || !rb) return;
+    sb.disabled = !canStop;
+    rb.disabled = !canStart;
+    sb.title = canStop ? "停止运行中的进程" : "当前没有运行中的进程，无需停止";
+    rb.title = canStart ? "按停止记录恢复" : "没有可恢复的停止记录";
+  }
+
+  /* 说明条统一走这里：短句直接可见，完整解释放悬停提示，页面保持整洁 */
+  /* ---- 说明条：桌面悬停看全文，触屏点按展开 ---- */
+  var canHover = !!(window.matchMedia && window.matchMedia("(hover:hover)").matches);
+
+  function applyNote(el, expanded){
+    if (expanded) { el.textContent = el.dataset.full || ""; return; }
+    if (el.dataset.shortHtml) { el.innerHTML = el.dataset.shortHtml; return; }
+    el.textContent = el.dataset.short || "";
+  }
+
+  function toggleNote(el){
+    var open = el.dataset.expanded === "1";
+    el.dataset.expanded = open ? "0" : "1";
+    applyNote(el, !open);
+  }
+
+  function bindNoteTap(el){
+    if (el.dataset.tapBound) return;
+    el.dataset.tapBound = "1";
+    // 有鼠标悬停的设备用原生 title 就够，点按展开反而多余
+    if (canHover) return;
+    el.addEventListener("click", function(){ toggleNote(el); });
+  }
+
+  function setNote(el, warn, short, full){
+    full = full || short;
+    // 轮询刷新不能把用户手动展开的说明收回去：内容没变就保持原展开状态
+    var expanded = (el.dataset.expanded === "1" && el.dataset.full === full);
+    el.className = "note" + (warn ? " warn" : "");
+    el.dataset.short = short;
+    el.dataset.shortHtml = "";
+    el.dataset.full = full;
+    el.dataset.expanded = expanded ? "1" : "0";
+    el.title = full;
+    applyNote(el, expanded);
+    bindNoteTap(el);
+  }
+
+  /* HTML 里静态写死的说明条也纳入同一套机制（原来只有 title，手机上点不开） */
+  function initStaticNotes(){
+    var nodes = document.querySelectorAll(".note[title]");
+    for (var i = 0; i < nodes.length; i++) {
+      (function(el){
+        if (el.dataset.tapBound) return;
+        var full = el.getAttribute("title") || "";
+        if (!full) return;
+        el.dataset.full = full;
+        el.dataset.shortHtml = (el.innerHTML || "").trim();
+        el.dataset.expanded = "0";
+        bindNoteTap(el);
+      })(nodes[i]);
+    }
+  }
+  /* ---- 说明条 end ---- */
+
+  function renderTunnels(s){
+    var box = $("tunnelList");
+    box.innerHTML = "";
+    var all = s.tunnels.all || [];
+    if (!all.length) {
+      box.innerHTML = '<div class="tunnel-item" style="color:#69809a">未配置隧道进程名</div>';
+    } else {
+      all.forEach(function(t){ box.appendChild(statusRow(t)); });
+    }
+    var note = $("tunnelNote");
+    var schedMode = !!(s.schedule && s.schedule.enabled);
+    if (!schedMode) {
+      setNote(note, false,
+        "手动任务模式：程序不会自动启停隧道，由「停止 / 恢复隧道」按钮立即执行。",
+        "手动任务模式：程序不会自动启停隧道，一切由你点「停止隧道 / 恢复隧道」立即执行，"
+        + "效果与定时任务模式下的自动管控完全一致。");
+    } else if (s.tunnels.guard_enabled) {
+      setNote(note, false,
+        "已开启：封锁时段自动停止命中的隧道进程，解除后自动拉回。",
+        "已开启：进入封锁时段会自动停止命中的进程；解除后优先用 systemctl 拉回服务，"
+        + "非 systemd 管理的进程会按停止前的命令行尝试重建。");
+    } else {
+      setNote(note, true,
+        "开关未开启，定时任务到点时不会碰隧道。",
+        "开关未开启，定时任务到点时不会碰隧道。"
+        + "frp 这类反向隧道由 NAS 主动连出，连接跟踪始终是 ESTABLISHED，入站封锁规则会放行它："
+        + "要在夜间真正断开，就得停掉 frpc 进程。");
+    }
+    var rec = s.tunnels.stopped_record || {};
+    armButtons("btnTunStop", "btnTunStart",
+               (s.tunnels.running || []).length > 0,
+               !!((rec.services && rec.services.length) || (rec.manual && rec.manual.length)));
+  }
+
+  function renderFn(s){
+    var box = $("fnList");
+    if (!box) return;
+    box.innerHTML = "";
+    var items = s.fnconnect ? (s.fnconnect.items || []) : [];
+    if (!items.length) {
+      box.innerHTML = '<div class="tunnel-item" style="color:#69809a">未配置 FN Connect 服务名</div>';
+    } else {
+      items.forEach(function(t){ box.appendChild(statusRow(t)); });
+    }
+    var note = $("fnNote");
+    if (!note) return;
+    var schedModeFn = !!(s.schedule && s.schedule.enabled);
+    if (!schedModeFn) {
+      setNote(note, false,
+        "手动任务模式：不会自动启停 FN Connect，用上方按钮立即执行。",
+        "手动任务模式：不会自动启停 FN Connect，用上方按钮立即执行，局域网访问不受影响。");
+    } else if (s.fnconnect && s.fnconnect.guard_enabled) {
+      setNote(note, false,
+        "已开启：封锁时段自动停止 FN Connect，解除后尽量自动拉回。",
+        "已开启：进入封锁时段会自动停止 FN Connect，解除后尽量自动拉回，局域网访问不受影响。"
+        + "停止期间飞牛「系统设置 - 远程访问」里的开关可能与实际状态不同步，属正常现象。");
+    } else {
+      setNote(note, true,
+        "开关未开启，定时任务到点时不会碰 FN Connect。",
+        "开关未开启，定时任务到点时不会碰 FN Connect。"
+        + "FN Connect 由 NAS 主动连出，入站规则拦不住它：停掉进程才能让外网彻底连不上。");
+    }
+    var frec = (s.fnconnect && s.fnconnect.stopped_record) || {};
+    armButtons("btnFnStop", "btnFnStart",
+               (s.fnconnect && (s.fnconnect.running || []).length > 0) || false,
+               !!((frec.services && frec.services.length) || (frec.manual && frec.manual.length)));
+  }
+
+  function fmtSize(n){
+    n = n || 0;
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+    var mb = n / 1024 / 1024;
+    if (mb < 1024) return mb.toFixed(1) + " MB";
+    return (mb / 1024).toFixed(2) + " GB";
+  }
+
+  var logSig = "";
+  function renderLogDates(s){
+    var sel = $("logDate");
+    if (!sel) return;
+    var dates = (s.logs && s.logs.dates) || [];
+    var sig = dates.map(function(d){ return d.date + ":" + d.size; }).join("|");
+    if (sig !== logSig) {                       // 内容没变就别重建，否则会打断用户的选择
+      logSig = sig;
+      var cur = sel.value;
+      sel.innerHTML = "";
+      if (!dates.length) {
+        var o0 = document.createElement("option");
+        o0.value = ""; o0.textContent = "（暂无日志）";
+        sel.appendChild(o0);
+      } else {
+        dates.forEach(function(d){
+          var o = document.createElement("option");
+          o.value = d.date;
+          o.textContent = d.date + "（" + fmtSize(d.size) + "）";
+          sel.appendChild(o);
+        });
+        var hit = dates.some(function(d){ return d.date === cur; });
+        sel.value = hit ? cur : dates[0].date;
+        if (!hit && cur) loadLog();
+      }
+    }
+    var keep = $("logKeep");
+    if (keep && document.activeElement !== keep && !isDirty("logKeep")) {
+      keep.value = (s.logs && s.logs.keep_days) || 15;
+    }
+    var note = $("logNote");
+    if (note) {
+      note.textContent = "日志按天分片存放（一天一个文件），当前保留 "
+        + ((s.logs && s.logs.keep_days) || 15) + " 天，共 " + dates.length
+        + " 个文件，过期文件每天自动清理一次；选定日期后可手动清理该日及更早的日志。";
+    }
+  }
+
+  function loadLog(){
+    var d = $("logDate") ? $("logDate").value : "";
+    var url = "/api/log?lines=60" + (d ? "&date=" + encodeURIComponent(d) : "");
+    api(url).then(function(j){
+      var box = $("logBox");
+      box.textContent = j.content || "（该文件暂无日志）";
+      box.dataset.loaded = "1";
+      box.scrollTop = box.scrollHeight;
+      $("logHint").textContent = (j.date || "") + " · 最近 60 行 · "
+        + new Date().toLocaleTimeString("zh-CN", {hour12:false});
+    }).catch(function(){});
+  }
+
+  /* ---------------- 安全预警横幅 ---------------- */
+  function esc(t){
+    return String(t == null ? "" : t).replace(/[&<>]/g, function(c){
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c];
+    });
+  }
+
+  var dismissed = {};
+  try { dismissed = JSON.parse(localStorage.getItem("ng-banner") || "{}"); } catch(e){ dismissed = {}; }
+  function dismissBanner(key, startTs){
+    dismissed[key] = startTs || 0;
+    try { localStorage.setItem("ng-banner", JSON.stringify(dismissed)); } catch(e){}
+  }
+
+  function renderBanner(s, sec){
+    var box = $("bannerBox");
+    if (!box) return;
+    var startTs = s.start_ts || 0;      // 后端重启后横幅重新出现一次
+    var items = [];
+    if (sec.rejected_public > 0) {
+      items.push({ kind: "danger", key: "rejected", closable: false,
+        html: "<b>检测到来自公网的访问尝试（已拦截 " + sec.rejected_public + " 次，最近来源 "
+              + esc(sec.last_rejected_ip || "未知") + "）</b><br>" + esc(sec.advice || "") });
+    } else if (sec.risk === "high") {
+      items.push({ kind: "danger", key: "high", closable: false,
+        html: "<b>面板端口可能已经暴露到公网</b><br>" + esc(sec.advice || "") });
+    } else if (sec.risk === "medium") {
+      items.push({ kind: "warn", key: "medium", closable: true,
+        html: "<b>NAS 持有公网地址</b><br>" + esc(sec.advice || "") });
+    } else {
+      items.push({ kind: "info", key: "none", closable: true, html: esc(sec.advice || "") });
+    }
+    if (!sec.auth_required) {
+      items.push({ kind: "warn", key: "nopw", closable: false,
+        html: "<b>尚未设置面板密码</b><br>任何能打开这个端口的人都能改你的防火墙规则，请先创建一个密码。" });
+    }
+
+    box.innerHTML = "";
+    items.forEach(function(it){
+      if (it.closable && dismissed[it.key] === startTs) return;
+      var d = document.createElement("div");
+      d.className = "banner " + it.kind;
+      d.innerHTML = it.html;
+      if (it.closable) {
+        var b = document.createElement("button");
+        b.className = "bclose"; b.type = "button"; b.textContent = "\u00d7";
+        b.title = "本次启动不再提示";
+        b.onclick = function(){ dismissBanner(it.key, startTs); renderBanner(s, sec); };
+        d.appendChild(b);
+      }
+      box.appendChild(d);
+    });
+  }
+
+  /* ---------------- 登录 / 创建密码 ---------------- */
+  var authMode = "setup";
+  function showAuth(setup){
+    var mask = $("authMask");
+    if (!mask || mask.style.display === "flex") return;
+    authMode = setup ? "setup" : "login";
+    $("authTitle").textContent = setup ? "设置面板密码" : "请输入面板密码";
+    $("authDesc").textContent = setup
+      ? "首次使用，请创建一个密码（8 - 64 位）。之后每次打开面板都要输入它，密码只保存在 NAS 本机。"
+      : "面板已设置密码，请输入后继续。";
+    $("authPw").placeholder = setup ? "新密码（8 - 64 位）" : "密码";
+    $("authPw2").style.display = setup ? "block" : "none";
+    $("authOk").textContent = setup ? "创建并进入" : "登录";
+    $("authCancel").style.display = "none";
+    $("authErr").textContent = "";
+    $("authPw").value = ""; $("authPw2").value = "";
+    mask.style.display = "flex";
+    setTimeout(function(){ $("authPw").focus(); }, 60);
+  }
+  function hideAuth(){ $("authMask").style.display = "none"; }
+
+  function showChangePw(){
+    var mask = $("authMask");
+    if (!mask) return;
+    authMode = "change";
+    $("authTitle").textContent = "修改面板密码";
+    $("authDesc").textContent = "输入当前密码与新密码。修改成功后其它设备需要重新登录。";
+    $("authPw").placeholder = "当前密码";
+    $("authPw2").placeholder = "新密码（8 - 64 位）";
+    $("authPw2").style.display = "block";
+    $("authOk").textContent = "确认修改";
+    $("authCancel").style.display = "block";
+    $("authErr").textContent = "";
+    $("authPw").value = ""; $("authPw2").value = "";
+    mask.style.display = "flex";
+    setTimeout(function(){ $("authPw").focus(); }, 60);
+  }
+
+  $("authCancel").onclick = function(){ hideAuth(); };
+
+  $("authOk").onclick = async function(){
+    var pw = $("authPw").value, pw2 = $("authPw2").value;
+    var payload;
+    if (authMode === "setup") {
+      if (pw.length < 8 || pw.length > 64) { $("authErr").textContent = "密码长度需为 8 - 64 位"; return; }
+      if (pw !== pw2) { $("authErr").textContent = "两次输入的密码不一致"; return; }
+      payload = { op: "setup", password: pw };
+    } else if (authMode === "login") {
+      payload = { op: "login", password: pw };
+    } else {
+      if (pw2.length < 8 || pw2.length > 64) { $("authErr").textContent = "新密码长度需为 8 - 64 位"; return; }
+      payload = { op: "changepw", old_password: pw, password: pw2 };
+    }
+    $("authOk").disabled = true;
+    $("authErr").textContent = "";
+    try {
+      var j = await api("/api/auth", payload);
+      setToken(j.token || "");
+      hideAuth();
+      toast(authMode === "setup" ? "密码已设置" : (authMode === "change" ? "密码已修改" : "登录成功"), "ok");
+      refresh(); loadLog();
+    } catch(e){ $("authErr").textContent = e.message; }
+    $("authOk").disabled = false;
+  };
+
+  ["authPw", "authPw2"].forEach(function(id){
+    $(id).addEventListener("keydown", function(ev){ if (ev.key === "Enter") $("authOk").click(); });
+  });
+
+  $("btnPw").onclick = showChangePw;
+
+  // ---------------- 交互 ----------------
+  function withBusy(btn, promise){
+    btn.disabled = true;
+    return promise.then(function(v){ btn.disabled = false; return v; },
+                        function(e){ btn.disabled = false; throw e; });
+  }
+
+  async function toggle(){
+    var armed = state.status && state.status.state === "off";
+    var label = armed ? "解除封锁" : "封锁";
+    if (!armed && state.mode === "strict") {
+      if (!confirm("即将关闭网卡：局域网也会断开，这个页面会立刻无法访问，"
+        + "只能到 NAS 本机终端执行 net-guard on force 才能恢复。确认继续？")) return;
+    }
+    if (!armed && state.mode === "soft") {
+      if (!confirm("即将切断外网出口：NAS 将无法上网（下载、更新、远程 App 中断），"
+        + "局域网访问不受影响。确认继续？")) return;
+    }
+    $("btnToggle").textContent = "执行中…";
+    try {
+      var res = await withBusy($("btnToggle"), api("/api/action", { action: armed ? "on" : "off" }));
+      if (res.ok) {
+        toast(label + "成功", "ok");
+        if (armed) {
+          // 解除封锁会触发 FN Connect 异步重启（脚本侧延迟 5 秒），
+          // 远程访问的用户会感到连接断开几秒——提前说清楚，不让人以为坏了。
+          toast("若 FN Connect 受管控，它将在数秒后自动重启以重建中继，"
+            + "远程连接会短暂中断几秒后自动恢复", "ok");
+        }
+        if (res.tunnel && res.tunnel.note) toast(res.tunnel.note);
+        if (state.mode === "soft" || state.mode === "strict") {
+          toast("建议点「开始自检」，确认外网是否真的断掉了", "ok");
+        }
+        if (res.status) render(res.status);
+      } else {
+        toast(label + "失败：" + (res.note || res.stderr || res.error || "未知错误"), "err");
+      }
+      loadLog();
+    } catch(e) {
+      toast("操作失败：" + e.message, "err");
+      // 远程操作时连接可能刚被解除动作本身重启（FN Connect 中继重建），
+      // 安排几次重连尝试，恢复后页面自动回到最新状态。
+      setTimeout(refresh, 4000);
+      setTimeout(refresh, 10000);
+      setTimeout(refresh, 20000);
+    }
+  }
+
+  async function cycle(){
+    try {
+      var res = await withBusy($("btnCycle"), api("/api/action", { action: "reload" }));
+      toast(res.ok ? "规则已按最新配置重建" : ("重载失败：" + (res.stderr || "未知")), res.ok ? "ok" : "err");
+      if (res.status) render(res.status);
+      loadLog();
+    } catch(e){
+      toast("重载失败：" + e.message, "err");
+      setTimeout(refresh, 4000);
+      setTimeout(refresh, 10000);
+    }
+  }
+
+  // 一键彻底复原：清空本程序留下的全部规则 + 补回路由。
+  // 典型用途：恢复网络后 FN Connect 中继还是不通 / 卸载面板之前。
+  async function purgeResidue(){
+    if (!confirm("将清空「网络守卫」在系统中留下的全部防火墙规则，并尝试补回默认路由。\n\n"
+      + "用于排查「局域网正常、但外网或 FN Connect 中继连不上」的情况；\n"
+      + "卸载本面板之前也应当先执行这一步。\n\n确定要继续吗？")) return;
+    try {
+      var res = await withBusy($("btnPurge"), api("/api/purge", {}));
+      if (res.ok) {
+        toast("规则已清空，网络尝试复原。FN Connect 将在数秒后自动重启，"
+          + "远程连接会短暂中断；若之后仍不通，"
+          + "请到飞牛「设置 → 远程访问」把开关关掉再打开一次", "ok");
+      } else {
+        toast("清理未完成：" + ((res.purge && (res.purge.note || res.purge.stderr)) || "未知错误"), "err");
+      }
+      if (res.status) render(res.status);
+      loadLog();
+    } catch(e){
+      toast("清理失败：" + e.message, "err");
+      setTimeout(refresh, 4000);
+      setTimeout(refresh, 10000);
+    }
+  }
+
+  async function saveConfig(payload, btn){
+    try {
+      // btn 为空时不禁用任何控件（开关类交互直接保存，不需要按钮态）
+      var req = api("/api/config", payload);
+      var res = btn ? await withBusy(btn, req) : await req;
+      toast("配置已保存并生效", "ok");
+      (res.warnings || []).forEach(function(w){ toast(w, "err"); });
+      if (res.status) render(res.status);
+      loadLog();
+    } catch(e){ toast("保存失败：" + e.message, "err"); }
+  }
+
+  $("btnToggle").onclick = toggle;
+  $("btnCycle").onclick = cycle;
+  $("btnPurge").onclick = purgeResidue;
+
+  Array.prototype.forEach.call($("modeSeg").children, function(b){
+    b.onclick = function(){
+      var m = b.dataset.mode;
+      if (m === "strict" && !confirm("切换到「断网口」模式：进入封锁时会直接关闭网卡，"
+        + "局域网也连不上 NAS。确定要切换吗？")) return;
+      Array.prototype.forEach.call($("modeSeg").children, function(x){ x.setAttribute("aria-pressed", "false"); });
+      b.setAttribute("aria-pressed", "true");
+      state.mode = m;
+      saveConfig({ mode: m }, null);
+      var mname = (MODE_LABEL[m] || [m])[0];
+      var armed = state.status && state.status.state === "off";
+      toast("已保存「" + mname + "」模式：" + (armed
+        ? "当前正在封锁中，已按新模式重建规则。"
+        : "它决定「封锁时怎么封」，不会自动进入封锁——点「立即封锁」后才会真正生效。"), "ok");
+      setTimeout(refresh, 500);
+    };
+  });
+
+  $("btnSave").onclick = function(){
+    saveConfig({
+      schedule_enabled: $("taskSeg").querySelector('[data-task="sched"]').getAttribute("aria-pressed") === "true",
+      off_time: $("cfgOff").value,
+      on_time: $("cfgOn").value,
+      mode: state.mode,
+      tunnel_guard: $("cfgTunnel").checked,
+      tunnel_services: chipsTun
+    }, $("btnSave"));
+  };
+
+  // 读取机器人输入框：空=关闭，含 **** = 掩码原样回传（后端视为不修改），
+  // 其余先在前端粗校一遍，省得为一个多余空格往返一次。
+  function webhookValue(){
+    var v = $("cfgNotify").value.trim();
+    clearDirty("cfgNotify");      // 取值即“用户已确认”，之后允许轮询把掩码写回来
+    if (!v) return "";
+    if (v.indexOf("****") > -1) return v;
+    if (!/^https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=[A-Za-z0-9_-]{8,80}$/.test(v)) {
+      toast("机器人地址格式不对：应为 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…", "err");
+      return null;
+    }
+    return v;
+  }
+
+  $("btnSaveAdv").onclick = function(){
+    var wh = webhookValue();
+    if (wh === null) return;
+    saveConfig({
+      guard_docker: $("cfgDocker").checked,
+      drop_log: $("cfgDropLog").checked,
+      protect_apt: $("cfgApt").checked,
+      notify_webhook: wh,
+      csrf_allow_origins: ($("cfgOrigins") ? $("cfgOrigins").value.trim() : "")
+    }, $("btnSaveAdv"));
+  };
+
+  // 发测试：先保存当前输入（否则测的还是旧地址），再让后端发一条
+  $("btnNotifyTest").onclick = async function(){
+    var wh = webhookValue();
+    if (wh === null) return;
+    if (!wh) { toast("先填机器人地址，再点发测试", "err"); return; }
+    try {
+      await withBusy($("btnNotifyTest"), api("/api/config", { notify_webhook: wh }));
+      await api("/api/notify/test", {});
+      toast("测试消息已发送，请到群里确认", "ok");
+      setTimeout(refresh, 400);
+    } catch(e){
+      toast("发送失败：" + e.message, "err");
+    }
+  };
+
+  // 开关即改即存：不再要求先点“保存”，避免被 5 秒一次的轮询刷回去
+  function bindSwitch(id, payloadFn){
+    $(id).addEventListener("change", function(){
+      markDirty(id);
+      saveConfig(payloadFn(), null);
+    });
+  }
+  // 执行方式切换后立刻改显隐，不等 5 秒轮询 —— 用户点了就该马上看到结果
+  function applyTaskDisplay(on){
+    var tr = $("timeRow"), so = $("schedOnly"), mo = $("manualOnly"), tw = $("tunSvcWrap");
+    if (tr) tr.style.display = on ? "" : "none";
+    if (so) so.style.display = on ? "" : "none";
+    if (mo) mo.style.display = on ? "none" : "";
+    if (tw) tw.style.display = on ? "none" : "";
+  }
+  Array.prototype.forEach.call($("taskSeg").children, function(b){
+    b.onclick = function(){
+      var on = b.dataset.task === "sched";
+      Array.prototype.forEach.call($("taskSeg").children, function(x){ x.setAttribute("aria-pressed", "false"); });
+      b.setAttribute("aria-pressed", "true");
+      markDirty("taskSeg", 10000);
+      applyTaskDisplay(on);
+      saveConfig({ schedule_enabled: on }, null);
+      toast(on ? "已切换为定时任务" : "已切换为手动任务（不按时段自动切换）", "ok");
+      // 拉一次最新状态，把依赖后端的数据同步到位
+      setTimeout(refresh, 400);
+    };
+  });
+  bindSwitch("cfgTunnel", function(){
+    return { tunnel_guard: $("cfgTunnel").checked, tunnel_services: chipsTun };
+  });
+  bindSwitch("cfgDocker", function(){ return { guard_docker: $("cfgDocker").checked }; });
+  bindSwitch("cfgDropLog", function(){ return { drop_log: $("cfgDropLog").checked }; });
+  bindSwitch("cfgApt", function(){ return { protect_apt: $("cfgApt").checked }; });
+  bindSwitch("cfgFn", function(){ return { fnconnect_guard: $("cfgFn").checked }; });
+
+  // 机器人地址是手输的长串：输入后给 5 分钟“别覆盖我”保护，免得 5 秒一次的
+  // 轮询把正在输的内容换成掩码；保存 / 发测试时会在 webhookValue 里解除保护，
+  // 这样保存后又能立刻回显掩码。
+  $("cfgNotify").addEventListener("input", function(){ markDirty("cfgNotify", 300000); });
+
+  $("logDate").addEventListener("change", loadLog);
+
+  $("btnLogKeep").onclick = function(){
+    var v = parseInt($("logKeep").value, 10);
+    if (!v || v < 1 || v > 365) { toast("保留天数需在 1 - 365 天之间", "err"); return; }
+    markDirty("logKeep", 8000);
+    saveConfig({ log_keep_days: v }, $("btnLogKeep"));
+  };
+
+  $("btnLogPurge").onclick = async function(){
+    var d = $("logDate").value;
+    if (!d) { toast("没有可清理的日志文件", "err"); return; }
+    if (!confirm("确认删除 " + d + " 及更早的全部日志文件吗？\n\n删除后不可恢复，只能等新的日志重新产生。")) return;
+    try {
+      var res = await api("/api/log", { op: "purge", before: d });
+      if (!res.removed.length) { toast("没有符合条件的日志文件", "ok"); return; }
+      toast("已清理 " + res.removed.length + " 个日志文件（" + res.removed.join("、")
+            + "），释放 " + fmtSize(res.freed), "ok");
+      logSig = "";
+      refresh();
+      setTimeout(loadLog, 300);
+    } catch(e){ toast("清理失败：" + e.message, "err"); }
+  };
+
+  function reportOp(kind, result){
+    var r = result || {};
+    if (kind === "stop") {
+      toast("已停止：" + ((r.stopped || []).join("、") || "无可停止项"), "ok");
+      if (r.note) toast(r.note);
+      return;
+    }
+    var ok = r.restarted || [], bad = r.failed || [];
+    if (ok.length) toast("已恢复：" + ok.join("、"), "ok");
+    if (!ok.length) toast("没有可自动恢复的记录，请手动启动对应服务 / 进程", "err");
+    (bad || []).forEach(function(f){
+      toast("无法自动恢复 " + f.name + "：" + (f.reason || "未知原因"), "err");
+    });
+    if (r.note) toast(r.note);
+  }
+
+  $("btnFnStop").onclick = async function(){
+    if ($("btnFnStop").disabled) return;
+    if (!confirm("停止 FN Connect？\n\n停止后外网（含飞牛 App）无法通过 FN ID 访问 NAS，局域网访问不受影响。")) return;
+    try {
+      await withBusy($("btnFnStop"), api("/api/fnconnect", { op: "stop" }).then(function(res){
+        reportOp("stop", res.result);
+        return res;
+      }));
+      await refresh();
+      loadLog();
+    } catch(e){ toast("操作失败：" + e.message, "err"); }
+  };
+
+  $("btnFnStart").onclick = async function(){
+    if ($("btnFnStart").disabled) return;
+    try {
+      await withBusy($("btnFnStart"), api("/api/fnconnect", { op: "start" }).then(function(res){
+        reportOp("start", res.result);
+        return res;
+      }));
+      await refresh();
+      loadLog();
+    } catch(e){ toast("操作失败：" + e.message, "err"); }
+  };
+
+  // 时间输入框改完立即保存
+  ["cfgOff", "cfgOn"].forEach(function(id){
+    $(id).addEventListener("change", function(){
+      markDirty(id, 12000);
+      saveConfig({ off_time: $("cfgOff").value, on_time: $("cfgOn").value }, null);
+    });
+  });
+
+  $("btnAddNet").onclick = function(){
+    var val = $("newNet").value.trim();
+    if (!val) return;
+    var isV6 = val.indexOf(":") >= 0;
+    if (isV6) { if (chipsV6.indexOf(val) < 0) chipsV6.push(val); }
+    else { if (chipsV4.indexOf(val) < 0) chipsV4.push(val); }
+    $("newNet").value = "";
+    drawChips();
+    saveConfig({ lan_v4: chipsV4, lan_v6: chipsV6 }, $("btnAddNet"));
+  };
+
+  $("btnAddTun").onclick = function(){
+    var val = $("newTun").value.trim();
+    if (!val) return;
+    if (chipsTun.indexOf(val) < 0) chipsTun.push(val);
+    $("newTun").value = "";
+    drawTunChips();
+    saveTun();
+  };
+
+  $("newTun").addEventListener("keydown", function(ev){
+    if (ev.key === "Enter") $("btnAddTun").click();
+  });
+
+  $("btnTunStop").onclick = async function(){
+    if ($("btnTunStop").disabled) return;
+    if (!confirm("停止运行中的隧道进程？\n\n停止后依赖该隧道的远程访问会中断。")) return;
+    try {
+      await withBusy($("btnTunStop"), api("/api/tunnels", { op: "stop" }).then(function(res){
+        reportOp("stop", res.result);
+        return res;
+      }));
+      await refresh();
+      loadLog();
+    } catch(e){ toast("操作失败：" + e.message, "err"); }
+  };
+
+  $("btnTunStart").onclick = async function(){
+    if ($("btnTunStart").disabled) return;
+    try {
+      await withBusy($("btnTunStart"), api("/api/tunnels", { op: "start" }).then(function(res){
+        reportOp("start", res.result);
+        return res;
+      }));
+      await refresh();
+      loadLog();
+    } catch(e){ toast("操作失败：" + e.message, "err"); }
+  };
+
+  // ---------------- 防护自检 ----------------
+  function verifyItem(c){
+    var mark = c.kind === "info" ? "i" : (c.ok ? "\u2713" : "\u2717");
+    var d = document.createElement("div");
+    var kind = c.kind || (c.ok ? "pass" : "fail");
+    d.className = "verify-item " + kind;
+    var b = document.createElement("b"); b.textContent = mark;
+    var s1 = document.createElement("span"); s1.textContent = c.name || "";
+    var e1 = document.createElement("em"); e1.textContent = c.detail || "";
+    d.appendChild(b); d.appendChild(s1); d.appendChild(e1);
+    return d;
+  }
+
+  $("btnVerify").onclick = async function(){
+    var btn = $("btnVerify"), box = $("verifyBox"), sum = $("verifySummary");
+    box.style.display = "flex";
+    box.innerHTML = "";
+    box.appendChild(verifyItem({ kind: "info", name: "正在自检",
+      detail: "正在读取路由表、防火墙规则并做连通性测试，需要几秒到十几秒" }));
+    sum.textContent = "自检中…";
+    try {
+      var res = await withBusy(btn, api("/api/verify", {}));
+      var v = res.verify || {};
+      box.innerHTML = "";
+      (v.checks || []).forEach(function(c){ box.appendChild(verifyItem(c)); });
+      sum.textContent = v.summary || "自检完成";
+      toast(v.summary || "自检完成", v.passed ? "ok" : "err");
+    } catch(e){
+      box.innerHTML = "";
+      box.appendChild(verifyItem({ kind: "fail", name: "自检失败", detail: String(e.message || e) }));
+      sum.textContent = "自检失败";
+      toast("自检失败：" + e.message, "err");
+    }
+  };
+
+  $("btnLog").onclick = loadLog;
+
+  // 点击 chip 的删除后自动保存
+  document.addEventListener("click", function(ev){
+    var t = ev.target;
+    if (t.tagName === "BUTTON" && t.textContent === "×") {
+      setTimeout(function(){ saveConfig({ lan_v4: chipsV4, lan_v6: chipsV6 }, $("btnAddNet")); }, 10);
+    }
+  });
+
+  function fmtRate(b){
+    if (b == null || isNaN(b)) return "—";
+    if (b >= 1048576) return (b / 1048576).toFixed(2) + " MB/s";
+    if (b >= 1024) return (b / 1024).toFixed(1) + " KB/s";
+    return Math.round(b) + " B/s";
+  }
+
+  function drawSpark(lineId, areaId, data){
+    var W = 300, H = 46, n = data.length, pts = [], i, max = 1;
+    for (i = 0; i < n; i++) if (data[i] > max) max = data[i];
+    for (i = 0; i < n; i++) {
+      var x = n > 1 ? (i * (W / (n - 1))) : 0;
+      var y = H - 3 - (data[i] / max) * (H - 8);
+      pts.push(x.toFixed(1) + "," + y.toFixed(1));
+    }
+    if (!n) { $(lineId).setAttribute("points", ""); $(areaId).setAttribute("points", ""); return; }
+    var s0 = pts.join(" ");
+    $(lineId).setAttribute("points", s0);
+    $(areaId).setAttribute("points", "0," + H + " " + s0 + " " + W + "," + H);
+  }
+
+  // 服务器的时钟可能与浏览器不完全一致，用每次 /api/status 带回的 now 校准
+  var clockOffset = 0, mhCache = null;
+  function nowSec(){ return Math.floor(Date.now() / 1000) + clockOffset; }
+  function dayLabel(ts){
+    if (!ts) return "";
+    var d = new Date(ts * 1000), t = new Date();
+    if (d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth()
+        && d.getDate() === t.getDate()) return "今天 ";
+    var tomorrow = new Date(t.getTime() + 86400000);
+    if (d.getDate() === tomorrow.getDate() && d.getMonth() === tomorrow.getMonth()) return "明天 ";
+    return (d.getMonth() + 1) + "月" + d.getDate() + "日 ";
+  }
+  function renderManualHint(){
+    var mh = $("manualHint"), c = mhCache;
+    if (!mh) return;
+    if (!c || !c.manual || !c.manual.state) { mh.style.display = "none"; return; }
+    mh.style.display = "block";
+    mh.className = "note warn";
+    var off = c.manual.state === "off";
+    var word = off ? "封锁" : "放行";
+    var left = Math.max(0, c.manual.until - nowSec());
+    if (c.sched && c.sched.enabled) {
+      var nx = c.sched.next || {};
+      var nxt = nx ? (nx.ts ? "下一次定时动作：" + dayLabel(nx.ts) + hhmm(nx.ts)
+                             + "（" + fmtDurSec(nx.ts - nowSec()) + "后）"
+                             + (nx.state === "off" ? "自动封锁" : "自动恢复") + "。"
+                    : "暂时没有可排定的定时动作。") : "";
+      mh.textContent = "手动" + word + "中：定时暂时让位，本次手动意图保持到 "
+        + hhmm(c.manual.until) + "，还剩 " + fmtDurSec(left) + "；" + nxt;
+    } else {
+      mh.textContent = "手动" + word + "中：当前为手动任务模式（没有定时计划），"
+        + "不会被任何自动逻辑撤销，会一直保持到你点「立即" + (off ? "恢复" : "封锁") + "」"
+        + "；即使忘了点，也会在 " + hhmm(c.manual.until) + "（还剩 " + fmtDurSec(left) + "）自动交还给系统默认状态。";
+    }
+  }
+  setInterval(renderManualHint, 1000);
+
+  function renderIo(d){
+    drawSpark("ioTxLine", "ioTxArea", d.tx || []);
+    drawSpark("ioRxLine", "ioRxArea", d.rx || []);
+    $("ioTxRate").textContent = fmtRate(d.tx_rate);
+    $("ioRxRate").textContent = fmtRate(d.rx_rate);
+    $("ioTxPeak").textContent = "峰值 " + fmtRate(d.tx_peak);
+    $("ioRxPeak").textContent = "峰值 " + fmtRate(d.rx_peak);
+    $("ioHint").textContent = (d.iface || "全部网卡") + " · 每 2 秒采样";
+    renderIoToday(d.day);
+  }
+
+  /* 今日累计：口径要写清楚 —— 今天零点后开机过才是完整的当日用量 */
+  function renderIoToday(day){
+    if (!$("ioTodayTx")) return;
+    if (!day || !day.rx && !day.tx) return;
+    $("ioTodayTx").textContent = "↑ " + fmtSize(day.tx);
+    $("ioTodayRx").textContent = "↓ " + fmtSize(day.rx);
+    $("ioTodayTotal").textContent = fmtSize(day.tx + day.rx);
+    var note;
+    if (day.exact) {
+      note = "从今天 00:00 起统计（NAS 于今日开机，计数口径完整）";
+    } else {
+      note = "NAS 今日之前已开机，只能从 " + hhmm(day.since)
+           + " 起统计，今日凌晨到该时刻的用量未计入";
+    }
+    $("ioTodayNote").textContent = note;
+  }
+
+  function ioExplain(mode, state, blocked){
+    var t;
+    if (state === "off") {
+      if (mode === "guard") {
+        t = "封入站模式下 NAS 自己上网不受影响，所以出站曲线照常走；入站只剩已建立连接的回包。"
+          + "要看「有没有被拦」，看上面的累计拦截数与丢弃包数。";
+      } else {
+        t = "断外网 / 断网口模式已切断本机出网，出站与入站曲线都应贴近 0（局域网流量除外）。";
+      }
+      if (blocked) t += " 本次警戒以来已丢弃 " + blocked + " 个包。";
+    } else {
+      t = "当前处于放行状态，出入站流量都在正常跑。点「立即封锁」后可以看到曲线的变化。";
+    }
+    $("ioNote").textContent = t;
+  }
+
+  var ioMode = "guard";
+  function refreshIo(){
+    if (document.hidden) return Promise.resolve();
+    return api("/api/io").then(function(r){
+      if (!r || !r.ok) return;
+      renderIo(r.io || {});
+      ioMode = r.mode || ioMode;
+      ioExplain(ioMode, r.state, (r.firewall && r.firewall.blocked_total) || 0);
+      // 顺手把拦截数刷得更及时（状态接口 5 秒一次，这里 2 秒一次）
+      if (r.firewall) { curFirewall = r.firewall; paintBlocked(curFirewall, ioMode); }
+    }).catch(function(){});
+  }
+
+  function refresh(){
+    return api("/api/status").then(render).catch(function(e){
+      // 渲染异常不要静默吞掉：控制台留一份，便于排障
+      console.error("refresh/render 失败：", (e && (e.stack || e.message)) || e);
+      var mask = $("authMask");
+      if (mask && mask.style.display === "flex") {
+        $("linkDot").className = "link-dot off";
+        $("linkText").textContent = "未登录";
+        return;
+      }
+      $("linkDot").className = "link-dot off";
+      $("linkText").textContent = "连接断开";
+    });
+  }
+
+  initStaticNotes();
+  refresh();
+  state.timer = setInterval(refresh, 5000);
+  state.logTimer = setInterval(function(){
+    if (!document.hidden) loadLog();
+  }, 15000);
+  state.ioTimer = setInterval(refreshIo, 2000);
+})();
+</script>
+</body>
+</html>

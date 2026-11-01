@@ -1,0 +1,42 @@
+#!/bin/bash
+# 升级完成后：文件已替换，做完整性校验并修正权限
+set -u
+
+fail() {
+    echo "$1" >&2
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then echo "$1" >"$TRIM_TEMP_LOGFILE"; fi
+    exit 1
+}
+
+for f in "${TRIM_APPDEST}/server/server.py" \
+         "${TRIM_APPDEST}/server/net-guard.sh" \
+         "${TRIM_APPDEST}/server/www/index.html"; do
+    if [ ! -f "$f" ]; then
+        fail "应用文件不完整：未找到 ${f#${TRIM_APPDEST}/}"
+    fi
+done
+
+chmod +x "${TRIM_APPDEST}/server/net-guard.sh" 2>/dev/null || true
+chmod +x "${TRIM_APPDEST}/server/server.py" 2>/dev/null || true
+
+mkdir -p "$TRIM_PKGETC" "$TRIM_PKGVAR" 2>/dev/null || true
+mkdir -p /var/lib/net-guard 2>/dev/null || true
+
+# 若升级前服务在运行，这里重新拉起（upgrade_callback 与 main 同在 cmd/ 目录）。
+# 不能同步等 start 跑完：start 内部最长要等 10 秒确认后端起来，
+# 叠加 stop 阶段的耗时就会顶到应用中心的钩子超时——手机端表现为
+# 「覆盖更新：未知错误」，但升级实际继续跑完。改为后台异步拉起，
+# 钩子本身最多再确认 3 秒（正常 1 秒内就能确认到），确认不到也放行。
+MAIN="$(cd "$(dirname "$0")" && pwd)/main"
+if [ -x "$MAIN" ]; then
+    # 用子 Shell 后台化，不依赖 nohup（部分精简环境没有它）。
+    ( "$MAIN" start >/dev/null 2>&1 ) &
+    i=0
+    while [ "$i" -lt 6 ]; do
+        if "$MAIN" status >/dev/null 2>&1; then break; fi
+        sleep 0.5
+        i=$((i + 1))
+    done
+fi
+
+exit 0

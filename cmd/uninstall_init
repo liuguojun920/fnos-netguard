@@ -1,0 +1,62 @@
+#!/bin/bash
+# 卸载前：必须把网络彻底复原，否则卸载后规则仍留在内核里继续拦包
+# （症状：局域网正常，但外网和 FN Connect 中继转发都不通，且"卸载了也没用"）
+set -u
+
+# 后端进程残留兜底：PID 文件失效时 main stop 清不掉孤儿 python，端口一直被占，
+# 应用中心卸载时等端口释放就会超时——手机端表现为「无法卸载：未知错误」，
+# 但后台卸载继续跑完。这里按命令行再清一次，并等它真正退出。
+if command -v pkill >/dev/null 2>&1 && [ -n "${TRIM_APPDEST:-}" ]; then
+    pkill -f "${TRIM_APPDEST}/server/server.py" 2>/dev/null || true
+    i=0
+    while [ "$i" -lt 10 ] && pgrep -f "${TRIM_APPDEST}/server/server.py" >/dev/null 2>&1; do
+        sleep 0.2
+        i=$((i + 1))
+    done
+    pkill -9 -f "${TRIM_APPDEST}/server/server.py" 2>/dev/null || true
+fi
+
+SCRIPT="${TRIM_APPDEST}/server/net-guard.sh"
+if [ -x "$SCRIPT" ]; then
+    # 用 purge 而不是 on：purge 会无条件清掉两种模式留下的全部 NET_GUARD* 链，
+    # 并在默认路由缺失时把它补回来，不依赖当前 conf 里的 MODE。
+    # FLOCK_WAIT=5：后台定时任务可能正持锁，最多等 5 秒而不是 20 秒，
+    # 避免卸载阶段被拖到应用中心超时。
+    NET_GUARD_CONF="$TRIM_PKGETC/net-guard.conf" FLOCK_WAIT=5 \
+        "$SCRIPT" purge >/dev/null 2>&1 || true
+else
+    # 脚本已经不在位也得兜底：直接手拆，避免任何一行规则残留
+    for t in iptables ip6tables; do
+        command -v "$t" >/dev/null 2>&1 || continue
+        for c in INPUT OUTPUT FORWARD DOCKER-USER; do
+            "$t" -w -S "$c" >/dev/null 2>&1 || continue
+            n=0
+            while "$t" -w -S "$c" 2>/dev/null | grep -qE -- '-j NET_GUARD(_IN)?$'; do
+                tgt="$("$t" -w -S "$c" 2>/dev/null | grep -oE -- '-j NET_GUARD(_IN)?$' | head -1 | awk '{print $2}')"
+                if [ -z "$tgt" ]; then break; fi
+                "$t" -w -D "$c" -j "$tgt" 2>/dev/null || break
+                n=$((n + 1))
+                if [ "$n" -ge 10 ]; then break; fi
+            done
+        done
+        for ch in NET_GUARD NET_GUARD_IN; do
+            "$t" -w -F "$ch" >/dev/null 2>&1 || true
+            "$t" -w -X "$ch" >/dev/null 2>&1 || true
+        done
+    done
+fi
+
+# 网卡如果在 strict 模式下被 down 过，卸载后也得拉回来
+IFACE="$(ip -o route show default 2>/dev/null | awk '{print $5; exit}')"
+if [ -n "$IFACE" ]; then ip link set "$IFACE" up >/dev/null 2>&1 || true; fi
+
+# 清理独立脚本版（非 fpk）留下的定时器，避免卸载后仍有任务在跑
+if command -v systemctl >/dev/null 2>&1; then
+    for u in net-guard-off.timer net-guard-on.timer net-guard-boot.service; do
+        if systemctl list-unit-files "$u" >/dev/null 2>&1; then
+            systemctl disable --now "$u" >/dev/null 2>&1 || true
+        fi
+    done
+fi
+
+exit 0
