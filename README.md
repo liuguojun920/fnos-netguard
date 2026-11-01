@@ -21,10 +21,6 @@ fnos-netguard/
 │   ├── server/           #   后端 server.py + net-guard.sh + 面板 www/
 │   └── ui/               #   桌面入口与图标
 ├── netguard-rescue.sh    # 应急救援脚本（规则残留时手动清理）
-├── tools/                # 构建、校验与发布工具
-│   ├── build_fpk.py      #   打包（修正权限位 + 同步 checksum，产物名带版本号）
-│   ├── verify_pkg.py     #   打包终验
-│   └── publish_release.py#   上传为 Gitee 发行版（Release）
 └── tests/                # 回归测试（Linux 环境专属）
 ```
 
